@@ -8,7 +8,7 @@ services:
     container_name: vosk-server
     hostname: vosk-server
     volumes:
-      - vosk-models:/opt/vosk-models
+      - ./vosk-server/models:/opt/vosk-models
     networks:
       - auto-caption-network
     restart: unless-stopped
@@ -81,5 +81,4 @@ networks:
     driver: bridge
 
 volumes:
-  vosk-models:
   libretranslate-data:

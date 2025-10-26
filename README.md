@@ -88,7 +88,7 @@ Dockerized Python service for generating subtitles from local video files using 
    docker-compose up -d
    ```
 
-   **Note**: First build will take 30-60 minutes to download all Vosk models (~12GB).
+   **Note**: First start will download Vosk models (~12GB) to `vosk-server/models/`. This is a one-time operation taking 20-40 minutes. Models are persisted on the host, so subsequent container restarts are instant.
 
 5. **Check service health**:
    ```bash
@@ -255,10 +255,13 @@ ssh root@unraid-ip
 # Navigate to project
 cd /mnt/user/appdata/auto-caption
 
-# Start services
+# Start services (first run downloads models to vosk-server/models/)
 docker-compose up -d
 
-# View logs
+# View logs (watch model download progress on first run)
+docker-compose logs -f vosk-server
+
+# View web service logs
 docker-compose logs -f web-service
 
 # Stop services
@@ -282,7 +285,9 @@ auto-caption/
 │
 ├── vosk-server/
 │   ├── Dockerfile              # Vosk server container
-│   └── download_models.sh      # Downloads 8 language models
+│   ├── entrypoint.sh           # Downloads models on first run
+│   ├── download_models.sh      # Downloads 8 language models
+│   └── models/                 # Model storage (host-mounted, ~12GB)
 │
 └── web-service/
     ├── Dockerfile              # FastAPI web service container

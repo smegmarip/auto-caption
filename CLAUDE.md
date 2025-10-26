@@ -33,7 +33,9 @@ auto-caption/
 │       └── utils.py             # File operations
 └── vosk-server/
     ├── Dockerfile
-    └── download_models.sh       # Pre-downloads 8 large models (~12GB)
+    ├── entrypoint.sh            # Downloads models on first run
+    ├── download_models.sh       # Downloads 8 large models (~12GB)
+    └── models/                  # Model storage (host-mounted, ~12GB)
 ```
 
 ## API Endpoint Specification

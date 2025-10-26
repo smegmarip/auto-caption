@@ -13,19 +13,16 @@ RUN pip install --no-cache-dir vosk-server
 # Create model directory
 RUN mkdir -p /opt/vosk-models
 
-# Copy model download script
+# Copy scripts
 COPY download_models.sh /opt/download_models.sh
-RUN chmod +x /opt/download_models.sh
+COPY entrypoint.sh /opt/entrypoint.sh
+RUN chmod +x /opt/download_models.sh /opt/entrypoint.sh
 
 # Set working directory
 WORKDIR /opt
 
-# Download models on build (this will take time and space ~12GB)
-RUN /opt/download_models.sh
-
 # Expose Vosk server port
 EXPOSE 2700
 
-# Start Vosk server with all models
-# The server will load models on demand based on language parameter
-CMD ["python", "-m", "vosk_server", "--interface", "0.0.0.0", "--port", "2700", "--model-path", "/opt/vosk-models"]
+# Use entrypoint to download models on first run
+ENTRYPOINT ["/opt/entrypoint.sh"]

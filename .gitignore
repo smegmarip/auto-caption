@@ -52,3 +52,7 @@ Thumbs.db
 *.swp
 tmp/
 temp/
+
+# Vosk models (large files ~12GB, downloaded on first run)
+vosk-server/models/*
+!vosk-server/models/.gitkeep
