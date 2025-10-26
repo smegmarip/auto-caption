@@ -28,7 +28,7 @@ services:
     container_name: libretranslate
     hostname: libretranslate
     environment:
-      - LT_LOAD_ONLY=en,es,ja,pt,ru,fr,de,nl
+      - LT_LOAD_ONLY=en,es,ja,pt,ru,fr,de,nl,it
       - LT_THREADS=4
     volumes:
       - libretranslate-data:/home/libretranslate/.local

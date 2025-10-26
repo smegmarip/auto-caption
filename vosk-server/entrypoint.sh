@@ -7,7 +7,7 @@ MODEL_DIR="/opt/vosk-models"
 echo "Checking for Vosk models in $MODEL_DIR..."
 
 # Check if models directory is empty or missing required models
-REQUIRED_MODELS=("en" "es" "ja" "pt" "ru" "fr" "de" "nl")
+REQUIRED_MODELS=("en" "es" "ja" "pt" "ru" "fr" "de" "nl" "it")
 MODELS_EXIST=true
 
 for lang in "${REQUIRED_MODELS[@]}"; do
@@ -19,7 +19,7 @@ for lang in "${REQUIRED_MODELS[@]}"; do
 done
 
 if [ "$MODELS_EXIST" = false ]; then
-    echo "Models not found or incomplete. Downloading models (~12GB)..."
+    echo "Models not found or incomplete. Downloading models (~13GB)..."
     echo "This is a one-time operation. Future container starts will be fast."
     /opt/download_models.sh
 else

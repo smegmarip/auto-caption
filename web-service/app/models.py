@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 # Supported languages
-SUPPORTED_LANGUAGES = ["en", "es", "ja", "pt", "ru", "fr", "de", "nl"]
+SUPPORTED_LANGUAGES = ["en", "es", "ja", "pt", "ru", "fr", "de", "nl", "it"]
 
 
 class CaptionRequest(BaseModel):
@@ -16,7 +16,7 @@ class CaptionRequest(BaseModel):
     )
     language: str = Field(
         ...,
-        description="Language code for transcription (en, es, ja, pt, ru, fr, de, nl)",
+        description="Language code for transcription (en, es, ja, pt, ru, fr, de, nl, it)",
         examples=["en"]
     )
     translate_to: Optional[str] = Field(

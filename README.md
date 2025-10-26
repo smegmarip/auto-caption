@@ -5,7 +5,7 @@ Dockerized Python service for generating subtitles from local video files using 
 ## Features
 
 - **Automatic Speech Recognition**: Transcribe video files using Vosk with high-accuracy large models
-- **Multi-language Support**: 8 languages supported (EN, ES, JA, PT, RU, FR, DE, NL)
+- **Multi-language Support**: 9 languages supported (EN, ES, JA, PT, RU, FR, DE, NL, IT)
 - **Smart Caching**: Checks for existing subtitle files before generating new ones
 - **Translation**: Optional translation with DeepL (primary) and LibreTranslate (fallback)
 - **RESTful API**: FastAPI-based service with JSON responses
@@ -48,8 +48,9 @@ Dockerized Python service for generating subtitles from local video files using 
 | French     | fr   | 1.4GB      | 14.72%         |
 | German     | de   | 1.9GB      | ~13%           |
 | Dutch      | nl   | 860MB      | 20.40%         |
+| Italian    | it   | 1.2GB      | 8.10%          |
 
-**Total model storage required: ~12GB**
+**Total model storage required: ~13GB**
 
 ## Quick Start
 
@@ -88,7 +89,7 @@ Dockerized Python service for generating subtitles from local video files using 
    docker-compose up -d
    ```
 
-   **Note**: First start will download Vosk models (~12GB) to `vosk-server/models/`. This is a one-time operation taking 20-40 minutes. Models are persisted on the host, so subsequent container restarts are instant.
+   **Note**: First start will download Vosk models (~13GB) to `vosk-server/models/`. This is a one-time operation taking 20-40 minutes. Models are persisted on the host, so subsequent container restarts are instant.
 
 5. **Check service health**:
    ```bash
@@ -286,8 +287,8 @@ auto-caption/
 ├── vosk-server/
 │   ├── Dockerfile              # Vosk server container
 │   ├── entrypoint.sh           # Downloads models on first run
-│   ├── download_models.sh      # Downloads 8 language models
-│   └── models/                 # Model storage (host-mounted, ~12GB)
+│   ├── download_models.sh      # Downloads 9 language models
+│   └── models/                 # Model storage (host-mounted, ~13GB)
 │
 └── web-service/
     ├── Dockerfile              # FastAPI web service container
@@ -372,7 +373,7 @@ Ensure video file is readable and in a supported format. Most common formats (MP
 
 ### Resource Usage
 - **RAM**: ~6GB total (4GB Vosk + 2GB LibreTranslate)
-- **Disk**: ~12GB for Vosk models + Docker images
+- **Disk**: ~13GB for Vosk models + Docker images
 - **CPU**: Moderate during transcription
 
 ## Development

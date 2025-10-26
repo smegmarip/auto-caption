@@ -34,8 +34,8 @@ auto-caption/
 └── vosk-server/
     ├── Dockerfile
     ├── entrypoint.sh            # Downloads models on first run
-    ├── download_models.sh       # Downloads 8 large models (~12GB)
-    └── models/                  # Model storage (host-mounted, ~12GB)
+    ├── download_models.sh       # Downloads 9 large models (~13GB)
+    └── models/                  # Model storage (host-mounted, ~13GB)
 ```
 
 ## API Endpoint Specification
@@ -72,8 +72,9 @@ auto-caption/
 - **French** - vosk-model-fr-0.22 (1.4GB, 14.72% WER)
 - **German** - vosk-model-de-0.21 (1.9GB)
 - **Dutch** - vosk-model-nl-spraakherkenning-0.6 (860MB, 20.40% WER)
+- **Italian** - vosk-model-it-0.22 (1.2GB, 8.10% WER)
 
-**Total model storage: ~12GB**
+**Total model storage: ~13GB**
 
 ## Subtitle Generation Workflow
 

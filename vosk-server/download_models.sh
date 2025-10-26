@@ -5,7 +5,7 @@ set -e
 MODEL_DIR="/opt/vosk-models"
 cd "$MODEL_DIR"
 
-echo "Downloading Vosk models... This will take a while (~12GB total)"
+echo "Downloading Vosk models... This will take a while (~13GB total)"
 
 # English - 1.8GB
 echo "Downloading English model..."
@@ -62,6 +62,13 @@ wget -q --show-progress https://alphacephei.com/vosk/models/vosk-model-nl-spraak
 unzip -q vosk-model-nl-spraakherkenning-0.6.zip
 rm vosk-model-nl-spraakherkenning-0.6.zip
 mv vosk-model-nl-spraakherkenning-0.6 nl
+
+# Italian - 1.2GB
+echo "Downloading Italian model..."
+wget -q --show-progress https://alphacephei.com/vosk/models/vosk-model-it-0.22.zip
+unzip -q vosk-model-it-0.22.zip
+rm vosk-model-it-0.22.zip
+mv vosk-model-it-0.22 it
 
 echo "All models downloaded successfully!"
 ls -lh "$MODEL_DIR"

@@ -16,7 +16,8 @@ DEEPL_LANG_MAP = {
     'ru': 'RU',
     'fr': 'FR',
     'de': 'DE',
-    'nl': 'NL'
+    'nl': 'NL',
+    'it': 'IT'
 }
 
 # LibreTranslate uses standard codes
@@ -28,7 +29,8 @@ LIBRETRANSLATE_LANG_MAP = {
     'ru': 'ru',
     'fr': 'fr',
     'de': 'de',
-    'nl': 'nl'
+    'nl': 'nl',
+    'it': 'it'
 }
 
 
