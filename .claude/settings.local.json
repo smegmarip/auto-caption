@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:transloadit.com)",
+      "WebFetch(domain:alphacephei.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
