@@ -11,8 +11,8 @@ class CaptionRequest(BaseModel):
 
     video_path: str = Field(
         ...,
-        description="Path to the video file (must be within /shared/media)",
-        examples=["/shared/media/movies/example.mp4"]
+        description="Path to the video file (must be within /data)",
+        examples=["/data/example.mp4"]
     )
     language: str = Field(
         ...,

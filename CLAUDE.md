@@ -45,7 +45,7 @@ auto-caption/
 **Request Body:**
 ```json
 {
-  "video_path": "/shared/media/movie.mp4",
+  "video_path": "/data/movie.mp4",
   "language": "es",
   "translate_to": "en"  // optional
 }
@@ -55,7 +55,7 @@ auto-caption/
 ```json
 {
   "srt_content": "1\n00:00:00,000 --> 00:00:02,000\nHola mundo\n\n...",
-  "file_path": "/shared/media/movie.es.srt",
+  "file_path": "/data/movie.es.srt",
   "cached": false,
   "translation_service": "deepl"  // or "libretranslate" or null
 }
@@ -141,7 +141,7 @@ auto-caption/
 
 ### 1. Core Infrastructure
 - [ ] Create docker-compose.yml with 3 services
-- [ ] Configure volume mount: Unraid share → /shared/media
+- [ ] Configure volume mount: Unraid share → /data
 - [ ] Create .env.example for DeepL API key, host paths
 - [ ] Set up health checks for all services
 - [ ] Configure internal Docker network
@@ -234,7 +234,7 @@ auto-caption/
 DEEPL_API_KEY=your_free_api_key_here
 
 # Volume Mounts (for docker-compose)
-UNRAID_MEDIA_PATH=/mnt/user/media
+UNRAID_MEDIA_PATH=/mnt/user/movies
 
 # Service Ports
 WEB_SERVICE_PORT=8000

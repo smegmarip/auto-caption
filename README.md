@@ -74,8 +74,8 @@ Dockerized Python service for generating subtitles from local video files using 
    # DeepL API key (get free key at https://www.deepl.com/pro-api)
    DEEPL_API_KEY=your_api_key_here
 
-   # Path to your Unraid media share
-   UNRAID_MEDIA_PATH=/mnt/user/media
+   # Path to your Unraid media directory (mounted to /data in container)
+   UNRAID_MEDIA_PATH=/mnt/user/movies
 
    # Web service port (using 9080 to avoid common port conflicts)
    WEB_SERVICE_PORT=9080
@@ -115,14 +115,14 @@ Generate subtitles from a video file.
 **Request Body**:
 ```json
 {
-  "video_path": "/shared/media/movies/example.mp4",
+  "video_path": "/data/movies/example.mp4",
   "language": "en",
   "translate_to": "es"
 }
 ```
 
 **Parameters**:
-- `video_path` (required): Path to video file (must be within `/shared/media`)
+- `video_path` (required): Path to video file (must be within `/data`)
 - `language` (required): Source language code for transcription
 - `translate_to` (optional): Target language code for translation
 
@@ -130,7 +130,7 @@ Generate subtitles from a video file.
 ```json
 {
   "srt_content": "1\n00:00:00,000 --> 00:00:02,000\nHello world\n\n...",
-  "file_path": "/shared/media/movies/example.en.srt",
+  "file_path": "/data/movies/example.en.srt",
   "cached": false,
   "translation_service": "deepl"
 }
@@ -149,7 +149,7 @@ Generate subtitles from a video file.
 curl -X POST http://localhost:9080/auto-caption \
   -H "Content-Type: application/json" \
   -d '{
-    "video_path": "/shared/media/movies/movie.mp4",
+    "video_path": "/data/movies/movie.mp4",
     "language": "en"
   }'
 ```
@@ -159,7 +159,7 @@ curl -X POST http://localhost:9080/auto-caption \
 curl -X POST http://localhost:9080/auto-caption \
   -H "Content-Type: application/json" \
   -d '{
-    "video_path": "/shared/media/movies/movie.mp4",
+    "video_path": "/data/movies/movie.mp4",
     "language": "es",
     "translate_to": "en"
   }'
@@ -173,7 +173,7 @@ fetch('http://localhost:9080/auto-caption', {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    video_path: '/shared/media/movies/movie.mp4',
+    video_path: '/data/movies/movie.mp4',
     language: 'en',
     translate_to: 'es'
   })
@@ -270,7 +270,7 @@ The auto-caption service can be accessed by other Docker containers on the same 
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
      body: JSON.stringify({
-       video_path: '/shared/media/movie.mp4',
+       video_path: '/data/movie.mp4',
        language: 'en'
      })
    })
@@ -393,14 +393,14 @@ curl http://localhost:2700/
 ### Video file not found
 
 Ensure:
-1. Video path in request starts with `/shared/media`
+1. Video path in request starts with `/data`
 2. `UNRAID_MEDIA_PATH` in `.env` is correct
 3. Volume mount in `docker-compose.yml` is correct
 
 Example mapping:
-- Host: `/mnt/user/media/movies/example.mp4`
-- Container: `/shared/media/movies/example.mp4`
-- Request: `{"video_path": "/shared/media/movies/example.mp4"}`
+- Host: `/mnt/user/movies/example.mp4`
+- Container: `/data/example.mp4`
+- Request: `{"video_path": "/data/example.mp4"}`
 
 ### Translation failing
 
@@ -456,7 +456,7 @@ docker-compose exec web-service bash
 | Variable              | Default                     | Description                      |
 |-----------------------|-----------------------------|----------------------------------|
 | `DEEPL_API_KEY`       | (required)                  | DeepL API authentication key     |
-| `UNRAID_MEDIA_PATH`   | `/mnt/user/media`           | Host path to media files         |
+| `UNRAID_MEDIA_PATH`   | `/mnt/user/movies`          | Host path to media directory (mounted to /data) |
 | `WEB_SERVICE_PORT`    | `9080`                      | Port for FastAPI web service     |
 | `DOCKER_NETWORK`      | `auto-caption-network`      | Docker network name (must exist) |
 | `LOG_LEVEL`           | `INFO`                      | Logging level                    |

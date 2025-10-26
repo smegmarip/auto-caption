@@ -60,7 +60,7 @@ services:
       - LIBRETRANSLATE_URL=http://libretranslate:5000
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      - ${UNRAID_MEDIA_PATH}:/shared/media
+      - ${UNRAID_MEDIA_PATH}:/data
     networks:
       - auto-caption-network
     depends_on:
