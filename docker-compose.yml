@@ -52,8 +52,9 @@ services:
       dockerfile: Dockerfile
     container_name: auto-caption-web
     hostname: auto-caption-web
-    ports:
-      - "${WEB_SERVICE_PORT:-8000}:8000"
+    # Uncomment to expose on host (requires available port)
+    # ports:
+    #   - "${WEB_SERVICE_PORT:-8000}:8000"
     environment:
       - DEEPL_API_KEY=${DEEPL_API_KEY}
       - VOSK_SERVER_URL=http://vosk-server:2700
