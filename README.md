@@ -80,18 +80,28 @@ Dockerized Python service for generating subtitles from local video files using 
    # Web service port (default: 8000)
    WEB_SERVICE_PORT=8000
 
+   # Docker network (use existing network for inter-container communication)
+   DOCKER_NETWORK=auto-caption-network
+
    # Logging level
    LOG_LEVEL=INFO
    ```
 
-4. **Build and start services**:
+4. **Create Docker network** (if using default network name):
+   ```bash
+   docker network create auto-caption-network
+   ```
+
+   **Or** use an existing network by setting `DOCKER_NETWORK` in `.env` to your network name.
+
+5. **Build and start services**:
    ```bash
    docker-compose up -d
    ```
 
    **Note**: First start will download Vosk models (~13GB) to `vosk-server/models/`. This is a one-time operation taking 20-40 minutes. Models are persisted on the host, so subsequent container restarts are instant.
 
-5. **Check service health**:
+6. **Check service health**:
    ```bash
    curl http://localhost:8000/health
    ```
@@ -220,6 +230,53 @@ Get your free API key: https://www.deepl.com/pro-api
 - **Quality**: Good quality, self-hosted
 - **Limits**: Unlimited (runs in Docker)
 - **Usage**: Automatically used when DeepL quota exhausted or fails
+
+## Inter-Container Communication
+
+The auto-caption service can be accessed by other Docker containers on the same network using the container name.
+
+### Using an Existing Network
+
+1. **Set the network in `.env`**:
+   ```bash
+   DOCKER_NETWORK=my-existing-network
+   ```
+
+2. **Ensure the network exists**:
+   ```bash
+   docker network create my-existing-network
+   ```
+
+3. **Connect other containers to the same network**:
+   ```bash
+   # For existing containers
+   docker network connect my-existing-network my-video-container
+
+   # Or in docker-compose.yml for other services
+   services:
+     my-video-app:
+       networks:
+         - my-existing-network
+
+   networks:
+     my-existing-network:
+       external: true
+   ```
+
+4. **Access the API from other containers**:
+   ```javascript
+   // From video.js or other container on same network
+   fetch('http://auto-caption-web:8000/auto-caption', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({
+       video_path: '/shared/media/movie.mp4',
+       language: 'en'
+     })
+   })
+   ```
+
+**Note**: Container name is `auto-caption-web`, internal port is `8000`.
 
 ## Unraid Deployment
 
@@ -401,6 +458,7 @@ docker-compose exec web-service bash
 | `DEEPL_API_KEY`       | (required)                  | DeepL API authentication key     |
 | `UNRAID_MEDIA_PATH`   | `/mnt/user/media`           | Host path to media files         |
 | `WEB_SERVICE_PORT`    | `8000`                      | Port for FastAPI web service     |
+| `DOCKER_NETWORK`      | `auto-caption-network`      | Docker network name (must exist) |
 | `LOG_LEVEL`           | `INFO`                      | Logging level                    |
 | `VOSK_SERVER_URL`     | `http://vosk-server:2700`   | Vosk server URL (internal)       |
 | `LIBRETRANSLATE_URL`  | `http://libretranslate:5000`| LibreTranslate URL (internal)    |

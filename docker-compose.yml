@@ -78,7 +78,8 @@ services:
 
 networks:
   auto-caption-network:
-    driver: bridge
+    external: true
+    name: ${DOCKER_NETWORK:-auto-caption-network}
 
 volumes:
   libretranslate-data:
