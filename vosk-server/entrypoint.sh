@@ -26,6 +26,6 @@ else
     echo "All models found. Skipping download."
 fi
 
-# Start Vosk server
-echo "Starting Vosk server..."
-exec python -m vosk_server --interface 0.0.0.0 --port 2700 --model-path /opt/vosk-models
+# Start Vosk HTTP server
+echo "Starting Vosk HTTP server on port 2700..."
+exec python3 /opt/vosk_http_server.py
