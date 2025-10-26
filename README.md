@@ -77,8 +77,8 @@ Dockerized Python service for generating subtitles from local video files using 
    # Path to your Unraid media share
    UNRAID_MEDIA_PATH=/mnt/user/media
 
-   # Web service port (default: 8000)
-   WEB_SERVICE_PORT=8000
+   # Web service port (using 9080 to avoid common port conflicts)
+   WEB_SERVICE_PORT=9080
 
    # Docker network (use existing network for inter-container communication)
    DOCKER_NETWORK=auto-caption-network
@@ -103,7 +103,7 @@ Dockerized Python service for generating subtitles from local video files using 
 
 6. **Check service health**:
    ```bash
-   curl http://localhost:8000/health
+   curl http://localhost:9080/health
    ```
 
 ## API Usage
@@ -146,7 +146,7 @@ Generate subtitles from a video file.
 
 #### Basic Transcription (No Translation)
 ```bash
-curl -X POST http://localhost:8000/auto-caption \
+curl -X POST http://localhost:9080/auto-caption \
   -H "Content-Type: application/json" \
   -d '{
     "video_path": "/shared/media/movies/movie.mp4",
@@ -156,7 +156,7 @@ curl -X POST http://localhost:8000/auto-caption \
 
 #### Transcription with Translation
 ```bash
-curl -X POST http://localhost:8000/auto-caption \
+curl -X POST http://localhost:9080/auto-caption \
   -H "Content-Type: application/json" \
   -d '{
     "video_path": "/shared/media/movies/movie.mp4",
@@ -167,7 +167,7 @@ curl -X POST http://localhost:8000/auto-caption \
 
 #### Using from JavaScript/video.js
 ```javascript
-fetch('http://localhost:8000/auto-caption', {
+fetch('http://localhost:9080/auto-caption', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json'
@@ -188,7 +188,7 @@ fetch('http://localhost:8000/auto-caption', {
 ### Health Check
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:9080/health
 ```
 
 Response:
@@ -457,7 +457,7 @@ docker-compose exec web-service bash
 |-----------------------|-----------------------------|----------------------------------|
 | `DEEPL_API_KEY`       | (required)                  | DeepL API authentication key     |
 | `UNRAID_MEDIA_PATH`   | `/mnt/user/media`           | Host path to media files         |
-| `WEB_SERVICE_PORT`    | `8000`                      | Port for FastAPI web service     |
+| `WEB_SERVICE_PORT`    | `9080`                      | Port for FastAPI web service     |
 | `DOCKER_NETWORK`      | `auto-caption-network`      | Docker network name (must exist) |
 | `LOG_LEVEL`           | `INFO`                      | Logging level                    |
 | `VOSK_SERVER_URL`     | `http://vosk-server:2700`   | Vosk server URL (internal)       |
@@ -466,8 +466,8 @@ docker-compose exec web-service bash
 ## API Documentation
 
 Once running, interactive API documentation is available at:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+- **Swagger UI**: http://localhost:9080/docs
+- **ReDoc**: http://localhost:9080/redoc
 
 ## License
 
