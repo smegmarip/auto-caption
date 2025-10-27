@@ -36,7 +36,7 @@ services:
       - custom_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
