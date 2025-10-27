@@ -111,6 +111,57 @@
   }
 
   /**
+   * Toggles the "Subtitled" tag for a given scene.
+   *
+   * @param {object} scene - The scene object to toggle the tag for.
+   * @param {boolean} enable - Whether to add or remove the "Subtitled" tag.
+   * @returns {Promise<void>} - A promise that resolves when the operation is complete.
+   */
+  async function toggleSubtitled(scene, enable) {
+    const subtitledTag = await findTagByName("Subtitled");
+    if (!subtitledTag) return;
+    const sceneTags = scene.tags || [];
+    const tagIds = sceneTags.map((tag) => tag.id);
+    if (enable) {
+      if (!tagIds.includes(subtitledTag.id)) {
+        tagIds.push(subtitledTag.id);
+        try {
+          await updateSceneTags(scene.id, tagIds);
+        } catch (e) {
+          console.error("Error updating scene tags:", e);
+        }
+      }
+    } else {
+      if (tagIds.includes(subtitledTag.id)) {
+        tagIds.splice(tagIds.indexOf(subtitledTag.id), 1);
+        try {
+          await updateSceneTags(scene.id, tagIds);
+        } catch (e) {
+          console.error("Error updating scene tags:", e);
+        }
+      }
+    }
+  }
+
+  /**
+   * Updates a scene with the given scene_id and tag_ids.
+   * @param {string} scene_id - The ID of the scene to update.
+   * @param {Array<string>} tag_ids - An array of tag IDs to associate with the scene.
+   * @returns {Promise<Object>} - A promise that resolves with the updated scene object.
+   */
+  async function updateSceneTags(scene_id, tag_ids) {
+    const reqData = {
+      variables: { input: { id: scene_id, tag_ids: tag_ids } },
+      query: `mutation sceneUpdate($input: SceneUpdateInput!){
+        sceneUpdate(input: $input) {
+          id
+        }
+      }`,
+    };
+    return csLib.callGQL(reqData);
+  }
+
+  /**
    * Retrieves the tag ID for a given tag name.
    *
    * @param {string} tagName - The name of the tag to retrieve the ID for.
@@ -268,13 +319,14 @@
   /**
    * Processes the remote caption for a given scene language and video path.
    *
-   * @param {string} scene_id - The ID of the scene to process the caption for.
+   * @param {object} scene - The scene object to process the caption for.
    * @param {string} sceneLanguage - The language of the scene.
-   * @param {string} videoPath - The path of the video file.
    * @returns {Promise<boolean>} - A promise that resolves when the caption processing is complete.
    */
-  async function processRemoteCaption(scene_id, sceneLanguage, videoPath) {
-    if (!sceneLanguage || !videoPath) return false;
+  async function processRemoteCaption(scene, sceneLanguage) {
+    if (!scene || !sceneLanguage) return false;
+    const scene_id = scene.id;
+    const videoPath = scene.files[0].path;
     return fetch(API_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -293,6 +345,7 @@
             .then(async () => {
               const captionUrl = await getCaptionForScene(scene_id);
               if (captionUrl) {
+                await toggleSubtitled(scene, true);
                 return loadPlayerCaption(captionUrl);
               }
             })
@@ -318,11 +371,11 @@
   /**
    * Detects the foreign language of a scene based on its tags.
    *
-   * @param {string} scene_id - The ID of the scene to detect the language for.
+   * @param {object} scene - The scene object to detect the language for.
    * @returns {Promise<string|null>} - A promise that resolves with the detected language or null if not found.
    */
-  async function detectForeignLanguage(scene_id) {
-    const sceneTags = await getTagsForScene(scene_id);
+  async function detectForeignLanguage(scene) {
+    const sceneTags = scene.tags || [];
     const flTag = await findTagByName("Foreign Language");
     if (flTag) {
       const registeredLangTags = flTag.children,
@@ -345,20 +398,38 @@
     return null;
   }
 
+  /**
+   * Detects if a scene already has captions and updates the "Subtitled" tag accordingly.
+   *
+   * @param {object} scene - The scene object to check for existing captions.
+   * @returns {Promise<boolean>} - A promise that resolves with true if captions exist, false otherwise.
+   */
+  async function detectExistingCaption(scene) {
+    if (scene.captions && scene.captions.length > 0 && scene.paths?.caption) {
+      await toggleSubtitled(scene, true);
+      return true;
+    } else {
+      await toggleSubtitled(scene, false);
+      return false;
+    }
+  }
+
   csLib.PathElementListener("/scenes/", ".video-wrapper", async function (el) {
     const [_, scene_id] = getScenarioAndID();
     const scene = await getScene(scene_id);
     const videoPath = scene?.files[0]?.path;
+    if (!scene || !videoPath) return;
     try {
-      const sceneLanguage = await detectForeignLanguage(scene_id);
-      if (sceneLanguage && videoPath) {
-        processRemoteCaption(scene_id, sceneLanguage, videoPath).catch(
-          (error) => {
+      const hasCaption = await detectExistingCaption(scene);
+      if (!hasCaption) {
+        const sceneLanguage = await detectForeignLanguage(scene);
+        if (sceneLanguage) {
+          processRemoteCaption(scene, sceneLanguage).catch((error) => {
             console.error("Error processing remote caption:", error);
-          }
-        );
-      } else {
-        // console.log("No foreign language tag detected for this scene.");
+          });
+        } else {
+          // console.log("No foreign language tag detected for this scene.");
+        }
       }
     } catch (error) {
       console.error("Error detecting foreign language:", error);
