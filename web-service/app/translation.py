@@ -7,12 +7,25 @@ from app.subtitle import parse_srt, SubtitleCue
 logger = logging.getLogger(__name__)
 
 
-# Language code mapping: our codes -> DeepL codes
-DEEPL_LANG_MAP = {
-    'en': 'EN-US',  # DeepL requires EN-US or EN-GB
+# DeepL language code mappings
+# Source languages use simple codes, target languages use specific variants
+DEEPL_SOURCE_LANG_MAP = {
+    'en': 'EN',
     'es': 'ES',
     'ja': 'JA',
-    'pt': 'PT-BR',  # Brazilian Portuguese
+    'pt': 'PT',
+    'ru': 'RU',
+    'fr': 'FR',
+    'de': 'DE',
+    'nl': 'NL',
+    'it': 'IT'
+}
+
+DEEPL_TARGET_LANG_MAP = {
+    'en': 'EN-US',  # Could also use EN-GB
+    'es': 'ES',     # Could also use ES-419 for Latin American
+    'ja': 'JA',
+    'pt': 'PT-BR',  # Could also use PT-PT for European
     'ru': 'RU',
     'fr': 'FR',
     'de': 'DE',
@@ -55,9 +68,9 @@ def translate_with_deepl(
     try:
         translator = deepl.Translator(api_key)
 
-        # Map to DeepL language codes
-        deepl_source = DEEPL_LANG_MAP.get(source_lang, source_lang.upper())
-        deepl_target = DEEPL_LANG_MAP.get(target_lang, target_lang.upper())
+        # Map to DeepL language codes (source uses simple codes, target uses variants)
+        deepl_source = DEEPL_SOURCE_LANG_MAP.get(source_lang, source_lang.upper())
+        deepl_target = DEEPL_TARGET_LANG_MAP.get(target_lang, target_lang.upper())
 
         logger.info(f"Translating with DeepL: {deepl_source} -> {deepl_target}")
 
