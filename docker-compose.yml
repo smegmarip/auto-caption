@@ -14,9 +14,9 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:2700/"]
-      interval: 60s
+      interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 3
       start_period: 3600s  # 1 hour for first-time model download (~13GB)
     deploy:
       resources:
@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)"]
-      interval: 30s
+      interval: 10s
       timeout: 10s
       retries: 3
       start_period: 600s  # 10 minutes for model loading
@@ -68,7 +68,7 @@ services:
         condition: service_healthy
       libretranslate:
         condition: service_healthy
-    restart: always
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
