@@ -193,6 +193,7 @@ def transcribe_srt():
 
             # Convert to SRT format
             srt_lines = []
+            segment_count = 0
             for i, segment in enumerate(segments, start=1):
                 # Format timestamps (SRT format: HH:MM:SS,mmm)
                 start_time = format_srt_timestamp(segment.start)
@@ -202,10 +203,11 @@ def transcribe_srt():
                 srt_lines.append(f"{start_time} --> {end_time}")
                 srt_lines.append(segment.text.strip())
                 srt_lines.append("")  # Blank line between entries
+                segment_count = i
 
             srt_content = "\n".join(srt_lines)
 
-            print(f"SRT generation complete: {i} segments")
+            print(f"SRT generation complete: {segment_count} segments")
             print(f"Detected language: {info.language} (probability: {info.language_probability:.2f})")
 
             return jsonify({
@@ -213,7 +215,7 @@ def transcribe_srt():
                 "language": info.language,
                 "language_probability": info.language_probability,
                 "duration": info.duration,
-                "segment_count": i
+                "segment_count": segment_count
             })
 
         finally:
