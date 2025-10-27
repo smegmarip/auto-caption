@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Language code mapping: our codes -> DeepL codes
 DEEPL_LANG_MAP = {
-    'en': 'EN',
+    'en': 'EN-US',  # DeepL requires EN-US or EN-GB
     'es': 'ES',
     'ja': 'JA',
     'pt': 'PT-BR',  # Brazilian Portuguese
