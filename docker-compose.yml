@@ -46,6 +46,26 @@ services:
         limits:
           memory: 2G
 
+  dependency-checker:
+    image: alpine:latest
+    container_name: dependency-checker
+    hostname: dependency-checker
+    command: sh -c "while true; do sleep 5; done"
+    networks:
+      - custom_network
+    restart: unless-stopped
+    depends_on:
+      vosk-server:
+        condition: service_healthy
+      libretranslate:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "exit 0"]
+      interval: 5s
+      timeout: 5s
+      retries: 1
+      start_period: 10s
+
   web-service:
     build:
       context: ./web-service
@@ -64,9 +84,7 @@ services:
     networks:
       - custom_network
     depends_on:
-      vosk-server:
-        condition: service_healthy
-      libretranslate:
+      dependency-checker:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
