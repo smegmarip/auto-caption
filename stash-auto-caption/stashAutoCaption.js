@@ -65,6 +65,7 @@
                 }
                 paths {
                     screenshot
+                    caption
                 }
                 movies {
                     movie {
@@ -154,12 +155,10 @@
       captionPath.lastIndexOf("/")
     );
     const reqData = {
-      variables: { paths: [captionParent] },
-      query: `mutation MetadataScan {
+      variables: { input: { paths: [captionParent] } },
+      query: `mutation MetadataScan($input: ScanMetadataInput!) {
             metadataScan(
-                input: {
-                    paths: $paths, 
-                }
+                input: $input
             )
         }`,
     };
@@ -253,7 +252,13 @@
           },
           false
         );
-        player.textTracks().getTrackById(lang).mode = "showing";
+        const tracks = player.remoteTextTracks();
+        for (let i = 0; i < tracks.length; i++) {
+          const track = tracks[i];
+          if (track.kind === 'captions' && track.language === 'en') {
+            track.mode = 'showing';
+          }
+        }
         return true;
       }
     }
