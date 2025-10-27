@@ -47,24 +47,19 @@ services:
           memory: 2G
 
   dependency-checker:
-    image: alpine:latest
+    image: curlimages/curl:latest
     container_name: dependency-checker
     hostname: dependency-checker
-    command: sh -c "while true; do sleep 5; done"
+    command: sh -c "while true; do sleep 10; done"
     networks:
       - custom_network
     restart: unless-stopped
-    depends_on:
-      vosk-server:
-        condition: service_healthy
-      libretranslate:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "sh", "-c", "exit 0"]
+      test: ["CMD", "sh", "-c", "curl -f http://vosk-server:2700/ && curl -f http://libretranslate:5000/languages"]
       interval: 5s
       timeout: 5s
       retries: 1
-      start_period: 10s
+      start_period: 3600s
 
   web-service:
     build:
