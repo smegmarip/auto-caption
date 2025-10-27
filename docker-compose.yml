@@ -1,27 +1,32 @@
 version: '3.8'
 
 services:
-  vosk-server:
+  whisper-server:
     build:
-      context: ./vosk-server
+      context: ./whisper-server
       dockerfile: Dockerfile
-    container_name: vosk-server
-    hostname: vosk-server
+    container_name: whisper-server
+    hostname: whisper-server
     volumes:
-      - ./vosk-server/models:/opt/vosk-models
+      - ./whisper-server/models:/opt/models
     networks:
       - custom_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:2700/"]
+      test: ["CMD", "curl", "-f", "http://localhost:2800/"]
       interval: 10s
       timeout: 10s
       retries: 3
-      start_period: 3600s  # 1 hour for first-time model download (~13GB)
+      start_period: 600s  # 10 minutes for first-time model download (~3GB for large-v3)
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   libretranslate:
     image: libretranslate/libretranslate:latest
@@ -55,11 +60,11 @@ services:
       - custom_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://vosk-server:2700/ && curl -f http://libretranslate:5000/languages"]
+      test: ["CMD", "sh", "-c", "curl -f http://whisper-server:2800/"]
       interval: 5s
       timeout: 5s
       retries: 1
-      start_period: 3600s
+      start_period: 600s
 
   web-service:
     build:
@@ -70,8 +75,7 @@ services:
     ports:
       - "${WEB_SERVICE_PORT:-9080}:8000"
     environment:
-      - DEEPL_API_KEY=${DEEPL_API_KEY}
-      - VOSK_SERVER_URL=http://vosk-server:2700
+      - WHISPER_SERVER_URL=http://whisper-server:2800
       - LIBRETRANSLATE_URL=http://libretranslate:5000
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
@@ -92,7 +96,7 @@ services:
 networks:
   custom_network:
     external: true
-    name: ${DOCKER_NETWORK:-auto-caption-network}
+    name: plex_network
 
 volumes:
   libretranslate-data:

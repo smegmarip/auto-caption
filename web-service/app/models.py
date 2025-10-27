@@ -73,5 +73,5 @@ class HealthResponse(BaseModel):
     """Response model for health check"""
 
     status: str = Field(..., description="Service status")
-    vosk_available: bool = Field(..., description="Vosk server availability")
+    whisper_available: bool = Field(..., description="Whisper server availability")
     libretranslate_available: bool = Field(..., description="LibreTranslate service availability")

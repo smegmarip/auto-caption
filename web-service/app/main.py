@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from app.models import CaptionRequest, CaptionResponse, HealthResponse
 from app.utils import validate_video_path, find_existing_srt, save_srt_file, read_srt_file
 from app.transcription import transcribe_video
-from app.subtitle import vosk_json_to_srt
 from app.translation import translate_srt
 
 # Configure logging
@@ -19,9 +18,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Environment variables
-VOSK_SERVER_URL = os.getenv('VOSK_SERVER_URL', 'http://vosk-server:2700')
+WHISPER_SERVER_URL = os.getenv('WHISPER_SERVER_URL', 'http://whisper-server:2800')
 LIBRETRANSLATE_URL = os.getenv('LIBRETRANSLATE_URL', 'http://libretranslate:5000')
-DEEPL_API_KEY = os.getenv('DEEPL_API_KEY', '')
 
 
 @asynccontextmanager
@@ -29,9 +27,8 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
     logger.info("Auto-Caption service starting up...")
-    logger.info(f"Vosk server: {VOSK_SERVER_URL}")
+    logger.info(f"Whisper server: {WHISPER_SERVER_URL}")
     logger.info(f"LibreTranslate: {LIBRETRANSLATE_URL}")
-    logger.info(f"DeepL API key configured: {bool(DEEPL_API_KEY)}")
 
     # Ensure temp directory exists
     os.makedirs('/tmp/auto-caption', exist_ok=True)
@@ -45,8 +42,8 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Auto-Caption Service",
-    description="Automatic subtitle generation from video files using Vosk speech recognition",
-    version="1.0.0",
+    description="Automatic subtitle generation from video files using Whisper AI speech recognition",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -65,15 +62,15 @@ async def health_check():
     """
     Health check endpoint to verify service and dependencies are running.
     """
-    vosk_available = False
+    whisper_available = False
     libretranslate_available = False
 
-    # Check Vosk server
+    # Check Whisper server
     try:
-        response = requests.get(f"{VOSK_SERVER_URL}/", timeout=5)
-        vosk_available = response.status_code == 200
+        response = requests.get(f"{WHISPER_SERVER_URL}/", timeout=5)
+        whisper_available = response.status_code == 200
     except Exception as e:
-        logger.warning(f"Vosk health check failed: {e}")
+        logger.warning(f"Whisper health check failed: {e}")
 
     # Check LibreTranslate
     try:
@@ -83,8 +80,8 @@ async def health_check():
         logger.warning(f"LibreTranslate health check failed: {e}")
 
     return HealthResponse(
-        status="healthy" if vosk_available else "degraded",
-        vosk_available=vosk_available,
+        status="healthy" if whisper_available else "degraded",
+        whisper_available=whisper_available,
         libretranslate_available=libretranslate_available
     )
 
@@ -155,23 +152,33 @@ async def generate_caption(request: CaptionRequest):
             logger.warning(f"Failed to read cached SRT, regenerating: {e}")
             # Continue to generate new SRT
 
-    # Step 3 & 4: Extract audio and transcribe
+    # Step 3 & 4: Extract audio and transcribe with Whisper (gets SRT directly)
     try:
-        logger.info("Starting transcription...")
-        vosk_result = transcribe_video(
-            request.video_path,
-            request.language,
-            VOSK_SERVER_URL
+        logger.info("Starting transcription with Whisper...")
+
+        # Check if we need to translate to English using Whisper
+        translate_to_english = (
+            request.translate_to == 'en' and
+            request.language != 'en'
         )
 
-        # Convert to SRT
-        srt_content = vosk_json_to_srt(vosk_result)
+        srt_content, detected_language, lang_probability = transcribe_video(
+            request.video_path,
+            request.language,
+            WHISPER_SERVER_URL,
+            translate_to_english=translate_to_english
+        )
 
         if not srt_content:
             raise ValueError("Transcription produced no results")
 
+        # If Whisper translated to English, mark it
+        if translate_to_english:
+            translation_service = "whisper"
+            logger.info(f"Whisper translated from {request.language} to English")
+
     except ConnectionError as e:
-        logger.error(f"Vosk server connection error: {e}")
+        logger.error(f"Whisper server connection error: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Speech recognition service unavailable"
@@ -183,19 +190,15 @@ async def generate_caption(request: CaptionRequest):
             detail=f"Transcription failed: {str(e)}"
         )
 
-    # Step 5: Optional translation
-    if request.translate_to and request.translate_to != request.language:
-        logger.info(f"Translating from {request.language} to {request.translate_to}")
-
-        if not DEEPL_API_KEY:
-            logger.warning("DeepL API key not configured, skipping DeepL")
+    # Step 5: Optional translation (for non-English targets)
+    if request.translate_to and request.translate_to != 'en' and request.translate_to != request.language:
+        logger.info(f"Translating from {request.language} to {request.translate_to} using LibreTranslate")
 
         try:
             srt_content, translation_service = translate_srt(
                 srt_content,
                 request.language,
                 request.translate_to,
-                DEEPL_API_KEY,
                 LIBRETRANSLATE_URL
             )
 

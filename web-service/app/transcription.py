@@ -3,27 +3,28 @@ import logging
 import tempfile
 import requests
 import ffmpeg
-from typing import Dict
+from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 def extract_audio(video_path: str) -> str:
     """
-    Extract audio from video file and convert to 16kHz mono WAV.
+    Extract audio from video file to temporary file.
+    Whisper accepts various audio formats, so we don't need strict conversion.
 
     Args:
         video_path: Path to video file
 
     Returns:
-        Path to temporary WAV file
+        Path to temporary audio file
 
     Raises:
         RuntimeError: If FFmpeg extraction fails
     """
-    # Create temp file for audio
+    # Create temp file for audio (using .mp3 for smaller size)
     temp_audio = tempfile.NamedTemporaryFile(
-        suffix='.wav',
+        suffix='.mp3',
         delete=False,
         dir='/tmp/auto-caption'
     )
@@ -33,16 +34,16 @@ def extract_audio(video_path: str) -> str:
     logger.info(f"Extracting audio from {video_path} to {temp_audio_path}")
 
     try:
-        # Extract and downsample audio to 16kHz mono WAV (Vosk requirement)
+        # Extract audio (Whisper handles various formats and sample rates)
         (
             ffmpeg
             .input(video_path)
             .output(
                 temp_audio_path,
-                acodec='pcm_s16le',  # PCM 16-bit little-endian
-                ac=1,                 # Mono
-                ar='16000',           # 16kHz sample rate
-                format='wav'
+                acodec='libmp3lame',
+                ac=1,  # Mono for smaller size
+                ar='16000',  # 16kHz is sufficient for speech
+                q='2'  # Good quality
             )
             .overwrite_output()
             .run(capture_stdout=True, capture_stderr=True, quiet=True)
@@ -59,38 +60,48 @@ def extract_audio(video_path: str) -> str:
         raise RuntimeError(f"Failed to extract audio from video: {e}")
 
 
-def transcribe_audio(audio_path: str, language: str, vosk_server_url: str) -> Dict:
+def transcribe_with_whisper(
+    audio_path: str,
+    language: str,
+    whisper_server_url: str,
+    translate_to_english: bool = False
+) -> Tuple[str, str, float]:
     """
-    Send audio file to Vosk server for transcription.
+    Send audio file to Whisper server for transcription and get SRT directly.
 
     Args:
-        audio_path: Path to WAV audio file
-        language: Language code (e.g., 'en', 'es')
-        vosk_server_url: URL of Vosk server
+        audio_path: Path to audio file
+        language: Source language code (e.g., 'en', 'es', 'pt')
+        whisper_server_url: URL of Whisper server
+        translate_to_english: If True, translate to English (uses Whisper's translate task)
 
     Returns:
-        Vosk JSON result with transcription
+        Tuple of (srt_content, detected_language, language_probability)
 
     Raises:
-        ConnectionError: If cannot connect to Vosk server
+        ConnectionError: If cannot connect to Whisper server
         RuntimeError: If transcription fails
     """
-    logger.info(f"Transcribing audio with Vosk (language: {language})")
+    task = 'translate' if translate_to_english else 'transcribe'
+    logger.info(f"Transcribing with Whisper (language: {language}, task: {task})")
 
-    # Vosk server endpoint
-    endpoint = f"{vosk_server_url}/model/{language}"
+    # Whisper server SRT endpoint
+    endpoint = f"{whisper_server_url}/transcribe/srt"
 
     try:
         # Read audio file
         with open(audio_path, 'rb') as audio_file:
             audio_data = audio_file.read()
 
-        # Send to Vosk server
+        # Send to Whisper server
         response = requests.post(
             endpoint,
             data=audio_data,
-            headers={'Content-Type': 'audio/x-wav'},
-            timeout=300  # 5 minutes timeout for long videos
+            params={
+                'language': language,
+                'task': task
+            },
+            timeout=600  # 10 minutes timeout for long videos
         )
 
         response.raise_for_status()
@@ -98,25 +109,32 @@ def transcribe_audio(audio_path: str, language: str, vosk_server_url: str) -> Di
         # Parse JSON response
         result = response.json()
 
-        if 'result' not in result:
-            logger.error(f"Unexpected Vosk response: {result}")
-            raise RuntimeError("Invalid response from Vosk server")
+        if 'srt_content' not in result:
+            logger.error(f"Unexpected Whisper response: {result}")
+            raise RuntimeError("Invalid response from Whisper server")
 
-        word_count = len(result.get('result', []))
-        logger.info(f"Transcription complete: {word_count} words recognized")
+        srt_content = result['srt_content']
+        detected_language = result.get('language', language)
+        language_probability = result.get('language_probability', 0.0)
+        segment_count = result.get('segment_count', 0)
 
-        return result
+        logger.info(
+            f"Transcription complete: {segment_count} segments, "
+            f"detected language: {detected_language} ({language_probability:.2%})"
+        )
+
+        return srt_content, detected_language, language_probability
 
     except requests.exceptions.ConnectionError as e:
-        logger.error(f"Cannot connect to Vosk server at {vosk_server_url}: {e}")
-        raise ConnectionError(f"Vosk server unavailable at {vosk_server_url}")
+        logger.error(f"Cannot connect to Whisper server at {whisper_server_url}: {e}")
+        raise ConnectionError(f"Whisper server unavailable at {whisper_server_url}")
 
     except requests.exceptions.Timeout as e:
-        logger.error(f"Vosk server timeout: {e}")
+        logger.error(f"Whisper server timeout: {e}")
         raise RuntimeError("Transcription timeout - video may be too long")
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"Vosk server error: {e}")
+        logger.error(f"Whisper server error: {e}")
         raise RuntimeError(f"Transcription failed: {e}")
 
     finally:
@@ -126,28 +144,39 @@ def transcribe_audio(audio_path: str, language: str, vosk_server_url: str) -> Di
             logger.debug(f"Removed temporary audio file: {audio_path}")
 
 
-def transcribe_video(video_path: str, language: str, vosk_server_url: str) -> Dict:
+def transcribe_video(
+    video_path: str,
+    language: str,
+    whisper_server_url: str,
+    translate_to_english: bool = False
+) -> Tuple[str, str, float]:
     """
-    Complete transcription pipeline: extract audio and transcribe.
+    Complete transcription pipeline: extract audio and transcribe with Whisper.
 
     Args:
         video_path: Path to video file
-        language: Language code
-        vosk_server_url: URL of Vosk server
+        language: Source language code
+        whisper_server_url: URL of Whisper server
+        translate_to_english: If True, translate to English using Whisper
 
     Returns:
-        Vosk JSON result with transcription
+        Tuple of (srt_content, detected_language, language_probability)
 
     Raises:
         RuntimeError: If extraction or transcription fails
-        ConnectionError: If cannot connect to Vosk server
+        ConnectionError: If cannot connect to Whisper server
     """
     # Extract audio
     audio_path = extract_audio(video_path)
 
     try:
-        # Transcribe
-        result = transcribe_audio(audio_path, language, vosk_server_url)
+        # Transcribe with Whisper
+        result = transcribe_with_whisper(
+            audio_path,
+            language,
+            whisper_server_url,
+            translate_to_english
+        )
         return result
     except Exception as e:
         # Ensure audio file is cleaned up on error
