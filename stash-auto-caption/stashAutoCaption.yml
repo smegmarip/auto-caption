@@ -8,3 +8,6 @@ ui:
   javascript:
     - stashFunctions.js
     - stashAutoCaption.js
+  csp:
+    connect-src:
+      - http://auto-caption-web:8000

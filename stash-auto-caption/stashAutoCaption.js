@@ -61,6 +61,7 @@
                 date,
                 files {
                     duration
+                    path
                 }
                 paths {
                     screenshot
@@ -321,7 +322,7 @@
     if (flTag) {
       const registeredLangTags = flTag.children,
         supportedLangTags = registeredLangTags.filter((tag) =>
-          Object.keys(LANG_DICT).includes(tag.name.replace(/ Language$/i))
+          Object.keys(LANG_DICT).includes(tag.name.replace(/ Language$/i, ""))
         ),
         sceneLanguage = sceneTags.reduce((lang, tag) => {
           if (!lang) {
