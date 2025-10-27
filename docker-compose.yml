@@ -7,10 +7,11 @@ services:
       dockerfile: Dockerfile
     container_name: whisper-server
     hostname: whisper-server
+    runtime: nvidia
     volumes:
       - ./whisper-server/models:/opt/models
     networks:
-      - custom_network
+      - plex_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:2800/"]
@@ -22,11 +23,6 @@ services:
       resources:
         limits:
           memory: 8G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
   libretranslate:
     image: libretranslate/libretranslate:latest
@@ -38,7 +34,7 @@ services:
     volumes:
       - libretranslate-data:/home/libretranslate/.local
     networks:
-      - custom_network
+      - plex_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)"]
@@ -57,7 +53,7 @@ services:
     hostname: dependency-checker
     command: sh -c "while true; do sleep 10; done"
     networks:
-      - custom_network
+      - plex_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "sh", "-c", "curl -f http://whisper-server:2800/"]
@@ -73,7 +69,7 @@ services:
     container_name: auto-caption-web
     hostname: auto-caption-web
     ports:
-      - "${WEB_SERVICE_PORT:-9080}:8000"
+      - "${WEB_SERVICE_PORT:-9000}:8000"
     environment:
       - WHISPER_SERVER_URL=http://whisper-server:2800
       - LIBRETRANSLATE_URL=http://libretranslate:5000
@@ -81,7 +77,7 @@ services:
     volumes:
       - ${UNRAID_MEDIA_PATH}:/data
     networks:
-      - custom_network
+      - plex_network
     depends_on:
       dependency-checker:
         condition: service_healthy
@@ -94,9 +90,8 @@ services:
       start_period: 10s
 
 networks:
-  custom_network:
+  plex_network:
     external: true
-    name: plex_network
 
 volumes:
   libretranslate-data:
