@@ -10,6 +10,7 @@ services:
     runtime: nvidia
     volumes:
       - ./whisper-server/models:/opt/models
+      - ./whisper-server/whisper_http_server.py:/opt/whisper_http_server.py
     networks:
       - plex_network
     restart: unless-stopped
@@ -76,6 +77,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ${UNRAID_MEDIA_PATH}:/data
+      - ./web-service/app:/app/app
     networks:
       - plex_network
     depends_on:
