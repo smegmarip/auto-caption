@@ -10,7 +10,7 @@ services:
     volumes:
       - ./vosk-server/models:/opt/vosk-models
     networks:
-      - ${DOCKER_NETWORK:-auto-caption-network}
+      - custom_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:2700/"]
@@ -33,7 +33,7 @@ services:
     volumes:
       - libretranslate-data:/home/libretranslate/.local
     networks:
-      - ${DOCKER_NETWORK:-auto-caption-network}
+      - custom_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/"]
@@ -62,13 +62,13 @@ services:
     volumes:
       - ${UNRAID_MEDIA_PATH}:/data
     networks:
-      - ${DOCKER_NETWORK:-auto-caption-network}
+      - custom_network
     depends_on:
       vosk-server:
         condition: service_healthy
       libretranslate:
         condition: service_healthy
-    restart: unless-stopped
+    restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -77,8 +77,9 @@ services:
       start_period: 10s
 
 networks:
-  ${DOCKER_NETWORK:-auto-caption-network}:
+  custom_network:
     external: true
+    name: ${DOCKER_NETWORK:-auto-caption-network}
 
 volumes:
   libretranslate-data:
