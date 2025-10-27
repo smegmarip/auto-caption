@@ -85,12 +85,7 @@ def transcribe():
                 language=language,
                 task=task,
                 word_timestamps=True,
-                vad_filter=True,  # Voice activity detection to skip silence
-                vad_parameters={
-                    "threshold": 0.5,
-                    "min_speech_duration_ms": 250,
-                    "min_silence_duration_ms": 2000
-                }
+                vad_filter=False  # Disable VAD to process all audio like HuggingFace demo
             )
 
             # Convert segments to list (generator)
@@ -183,12 +178,7 @@ def transcribe_srt():
                 language=language,
                 task=task,
                 word_timestamps=False,  # Segment-level is fine for SRT
-                vad_filter=True,
-                vad_parameters={
-                    "threshold": 0.5,
-                    "min_speech_duration_ms": 250,
-                    "min_silence_duration_ms": 2000
-                }
+                vad_filter=False  # Disable VAD to process all audio like HuggingFace demo
             )
 
             # Convert to SRT format
