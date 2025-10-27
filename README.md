@@ -99,9 +99,21 @@ Dockerized Python service for generating subtitles from local video files using 
    docker-compose up -d
    ```
 
-   **Note**: First start will download Vosk models (~13GB) to `vosk-server/models/`. This is a one-time operation taking 20-40 minutes. Models are persisted on the host, so subsequent container restarts are instant.
+   **Important Notes**:
+   - **First start**: Vosk server will download models (~13GB) to `vosk-server/models/`. This takes 20-40 minutes.
+   - Health check allows 1 hour for first-time model download
+   - Watch download progress: `docker-compose logs -f vosk-server`
+   - **Subsequent starts**: Instant (models already downloaded)
 
-6. **Check service health**:
+6. **Monitor first-time startup** (recommended):
+   ```bash
+   # Watch vosk-server download models
+   docker-compose logs -f vosk-server
+
+   # Once you see "Starting Vosk HTTP server on port 2700...", models are ready
+   ```
+
+7. **Check service health**:
    ```bash
    curl http://localhost:9080/health
    ```
