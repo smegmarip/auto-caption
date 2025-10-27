@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:transloadit.com)",
-      "WebFetch(domain:alphacephei.com)"
+      "WebFetch(domain:alphacephei.com)",
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []
