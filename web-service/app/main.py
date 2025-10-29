@@ -4,11 +4,16 @@ import requests
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 
-from app.models import CaptionRequest, CaptionResponse, HealthResponse
+from app.models import (
+    CaptionRequest, CaptionResponse, HealthResponse,
+    TaskStartResponse, TaskStatusResponse
+)
 from app.utils import validate_video_path, find_existing_srt, save_srt_file, read_srt_file
 from app.transcription import transcribe_video
 from app.translation import translate_srt
+from app.task_manager import task_manager, TaskStage
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +26,9 @@ logger = logging.getLogger(__name__)
 WHISPER_SERVER_URL = os.getenv('WHISPER_SERVER_URL', 'http://whisper-server:2800')
 LIBRETRANSLATE_URL = os.getenv('LIBRETRANSLATE_URL', 'http://libretranslate:5000')
 
+# Thread pool for background task execution (queue with max 4 workers)
+executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="caption-worker")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,6 +37,7 @@ async def lifespan(app: FastAPI):
     logger.info("Auto-Caption service starting up...")
     logger.info(f"Whisper server: {WHISPER_SERVER_URL}")
     logger.info(f"LibreTranslate: {LIBRETRANSLATE_URL}")
+    logger.info(f"Task executor: {executor._max_workers} workers")
 
     # Ensure temp directory exists
     os.makedirs('/tmp/auto-caption', exist_ok=True)
@@ -37,6 +46,9 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Auto-Caption service shutting down...")
+    logger.info("Shutting down task executor...")
+    executor.shutdown(wait=True, cancel_futures=False)
+    logger.info("Task executor shutdown complete")
 
 
 # Create FastAPI app
@@ -172,10 +184,12 @@ async def generate_caption(request: CaptionRequest):
         if not srt_content:
             raise ValueError("Transcription produced no results")
 
-        # If Whisper translated to English, mark it
+        # Whisper did the work (either transcription or translation to English)
+        translation_service = "whisper"
         if translate_to_english:
-            translation_service = "whisper"
             logger.info(f"Whisper translated from {request.language} to English")
+        else:
+            logger.info(f"Whisper transcribed in {detected_language}")
 
     except ConnectionError as e:
         logger.error(f"Whisper server connection error: {e}")
@@ -230,15 +244,222 @@ async def generate_caption(request: CaptionRequest):
     )
 
 
+def generate_caption_background(
+    task_id: str,
+    video_path: str,
+    language: str,
+    translate_to: str = None
+):
+    """
+    Background worker function for caption generation.
+    Runs in thread pool executor and updates task status.
+
+    Args:
+        task_id: Task ID for status tracking
+        video_path: Path to video file
+        language: Source language code
+        translate_to: Optional target language code
+    """
+    logger.info(f"Task {task_id} started: video={video_path}, lang={language}, translate={translate_to}")
+    translation_service = None
+
+    try:
+        # Determine target language for file check
+        target_lang = translate_to or language
+
+        # Check for existing SRT
+        existing_srt = find_existing_srt(video_path, target_lang)
+
+        if existing_srt:
+            logger.info(f"Task {task_id}: Using cached SRT file: {existing_srt}")
+            try:
+                srt_content = read_srt_file(existing_srt)
+
+                # Complete immediately with cached result
+                task_manager.complete_task(task_id, {
+                    "caption_path": existing_srt,
+                    "cached": True,
+                    "translation_service": None
+                })
+                logger.info(f"Task {task_id} completed (cached)")
+                return
+
+            except Exception as e:
+                logger.warning(f"Task {task_id}: Failed to read cached SRT, regenerating: {e}")
+                # Continue to generate new SRT
+
+        # Stage 1: Extract audio (10% of progress: 0-10%)
+        task_manager.update_progress(task_id, 0.05, TaskStage.EXTRACTING_AUDIO)
+        logger.info(f"Task {task_id}: Extracting audio...")
+        task_manager.update_progress(task_id, 0.10, TaskStage.EXTRACTING_AUDIO)
+
+        # Stage 2: Transcribe with Whisper (65% or 85% of progress)
+        # Progress from 10% to 75% (if just transcribing) or 95% (if translating to English)
+        # Whisper server will update progress internally via streaming
+        logger.info(f"Task {task_id}: Starting transcription...")
+
+        # Check if we need to translate to English using Whisper
+        translate_to_english = (
+            translate_to == 'en' and
+            language != 'en'
+        )
+
+        srt_content, detected_language, lang_probability = transcribe_video(
+            video_path,
+            language,
+            WHISPER_SERVER_URL,
+            translate_to_english=translate_to_english,
+            task_id=task_id,
+            task_manager=task_manager
+        )
+
+        if not srt_content:
+            raise ValueError("Transcription produced no results")
+
+        # Whisper did the work (either transcription or translation to English)
+        translation_service = "whisper"
+        if translate_to_english:
+            logger.info(f"Task {task_id}: Whisper translated from {language} to English")
+            # Whisper handled 85% (transcription + translation), now at 95%
+            task_manager.update_progress(task_id, 0.95, TaskStage.TRANSCRIBING)
+        else:
+            logger.info(f"Task {task_id}: Whisper transcribed in {detected_language}")
+            # Whisper handled 65% (transcription only), now at 75%
+            task_manager.update_progress(task_id, 0.75, TaskStage.TRANSCRIBING)
+
+        logger.info(f"Task {task_id}: Transcription complete ({len(srt_content)} chars)")
+
+        # Stage 3: Optional translation with LibreTranslate (20% of progress: 75-95%)
+        if translate_to and translate_to != 'en' and translate_to != language:
+            task_manager.update_progress(task_id, 0.75, TaskStage.TRANSLATING)
+            logger.info(f"Task {task_id}: Translating from {language} to {translate_to}...")
+
+            srt_content, translation_service = translate_srt(
+                srt_content,
+                language,
+                translate_to,
+                LIBRETRANSLATE_URL
+            )
+
+            task_manager.update_progress(task_id, 0.95, TaskStage.TRANSLATING)
+            logger.info(f"Task {task_id}: Translation complete using {translation_service}")
+
+        # Stage 4: Save SRT file (5% of progress)
+        task_manager.update_progress(task_id, 0.97, TaskStage.SAVING)
+        logger.info(f"Task {task_id}: Saving SRT file...")
+
+        srt_path = save_srt_file(video_path, target_lang, srt_content)
+
+        logger.info(f"Task {task_id}: SRT saved to {srt_path}")
+
+        # Complete task with result
+        task_manager.complete_task(task_id, {
+            "caption_path": srt_path,
+            "cached": False,
+            "translation_service": translation_service
+        })
+
+        logger.info(f"Task {task_id} completed successfully")
+
+    except Exception as e:
+        logger.error(f"Task {task_id} failed: {e}", exc_info=True)
+        task_manager.fail_task(task_id, str(e))
+
+
+@app.post("/auto-caption/start", response_model=TaskStartResponse)
+async def start_caption_task(request: CaptionRequest):
+    """
+    Start an async caption generation task.
+
+    This endpoint immediately returns a task ID and processes the request
+    in the background. Use /auto-caption/status/{task_id} to poll progress.
+
+    Args:
+        request: CaptionRequest with video_path, language, and optional translate_to
+
+    Returns:
+        TaskStartResponse with task_id and initial status
+    """
+    logger.info(
+        f"Starting async caption task: video={request.video_path}, "
+        f"lang={request.language}, translate={request.translate_to}"
+    )
+
+    # Validate video file exists before queuing task
+    try:
+        validate_video_path(request.video_path)
+    except FileNotFoundError as e:
+        logger.error(f"Video file not found: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except (ValueError, PermissionError) as e:
+        logger.error(f"Video file validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+    # Create task
+    task_id = task_manager.create_task()
+
+    # Submit to background executor (queued automatically)
+    executor.submit(
+        generate_caption_background,
+        task_id,
+        request.video_path,
+        request.language,
+        request.translate_to
+    )
+
+    logger.info(f"Task {task_id} queued")
+
+    return TaskStartResponse(
+        task_id=task_id,
+        status="queued"
+    )
+
+
+@app.get("/auto-caption/status/{task_id}", response_model=TaskStatusResponse)
+async def get_task_status(task_id: str):
+    """
+    Get the status of an async caption generation task.
+
+    Poll this endpoint to track task progress. When status is "completed",
+    the result field will contain the caption_path and other metadata.
+
+    Args:
+        task_id: Task ID returned from /auto-caption/start
+
+    Returns:
+        TaskStatusResponse with current task status, progress, and result
+    """
+    task = task_manager.get_task(task_id)
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task {task_id} not found"
+        )
+
+    # Convert task to dict for response
+    task_dict = task.to_dict()
+
+    return TaskStatusResponse(**task_dict)
+
+
 @app.get("/")
 async def root():
     """Root endpoint with service information"""
     return {
         "service": "Auto-Caption",
-        "version": "1.0.0",
-        "description": "Automatic subtitle generation from video files",
+        "version": "2.0.0",
+        "description": "Automatic subtitle generation from video files using Whisper AI",
         "endpoints": {
             "health": "/health",
-            "auto_caption": "POST /auto-caption"
+            "auto_caption": "POST /auto-caption (legacy sync endpoint)",
+            "start_task": "POST /auto-caption/start (async task start)",
+            "task_status": "GET /auto-caption/status/{task_id} (async task polling)"
         }
     }

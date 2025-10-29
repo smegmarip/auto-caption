@@ -64,7 +64,9 @@ def transcribe_with_whisper(
     audio_path: str,
     language: str,
     whisper_server_url: str,
-    translate_to_english: bool = False
+    translate_to_english: bool = False,
+    task_id: str = None,
+    task_manager=None
 ) -> Tuple[str, str, float]:
     """
     Send audio file to Whisper server for transcription and get SRT directly.
@@ -74,6 +76,8 @@ def transcribe_with_whisper(
         language: Source language code (e.g., 'en', 'es', 'pt')
         whisper_server_url: URL of Whisper server
         translate_to_english: If True, translate to English (uses Whisper's translate task)
+        task_id: Optional task ID for progress updates
+        task_manager: Optional TaskManager instance for progress updates
 
     Returns:
         Tuple of (srt_content, detected_language, language_probability)
@@ -82,6 +86,9 @@ def transcribe_with_whisper(
         ConnectionError: If cannot connect to Whisper server
         RuntimeError: If transcription fails
     """
+    import time
+    import json
+
     task = 'translate' if translate_to_english else 'transcribe'
     logger.info(f"Transcribing with Whisper (language: {language}, task: {task})")
 
@@ -93,21 +100,66 @@ def transcribe_with_whisper(
         with open(audio_path, 'rb') as audio_file:
             audio_data = audio_file.read()
 
+        # Generate whisper task ID if we have a web service task ID
+        whisper_task_id = f"whisper-{task_id}" if task_id else None
+
+        # Prepare params
+        params = {'language': language, 'task': task}
+        if whisper_task_id:
+            params['task_id'] = whisper_task_id
+
         # Send to Whisper server
         response = requests.post(
             endpoint,
             data=audio_data,
-            params={
-                'language': language,
-                'task': task
-            },
+            params=params,
+            stream=(whisper_task_id is not None),  # Stream if task_id provided
             timeout=600  # 10 minutes timeout for long videos
         )
 
         response.raise_for_status()
 
-        # Parse JSON response
-        result = response.json()
+        # Handle streaming vs non-streaming response
+        if whisper_task_id:
+            # Streaming mode: parse JSON-lines and update progress
+            result = None
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+
+                try:
+                    data = json.loads(line)
+
+                    if data['type'] == 'progress':
+                        # Map whisper progress (0-1) to task progress
+                        whisper_progress = data['progress']
+                        if translate_to_english:
+                            # Whisper handles transcription + translation (85%)
+                            task_progress = 0.10 + (whisper_progress * 0.85)
+                        else:
+                            # Whisper only transcribes (65%)
+                            task_progress = 0.10 + (whisper_progress * 0.65)
+
+                        if task_manager and task_id:
+                            from app.task_manager import TaskStage
+                            task_manager.update_progress(task_id, task_progress, TaskStage.TRANSCRIBING)
+
+                    elif data['type'] == 'complete':
+                        result = data
+
+                    elif data['type'] == 'error':
+                        raise RuntimeError(data['error'])
+
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON line: {line}, error: {e}")
+                    continue
+
+            if not result:
+                raise RuntimeError("No completion message received from Whisper server")
+
+        else:
+            # Legacy mode: single JSON response
+            result = response.json()
 
         if 'srt_content' not in result:
             logger.error(f"Unexpected Whisper response: {result}")
@@ -148,7 +200,9 @@ def transcribe_video(
     video_path: str,
     language: str,
     whisper_server_url: str,
-    translate_to_english: bool = False
+    translate_to_english: bool = False,
+    task_id: str = None,
+    task_manager=None
 ) -> Tuple[str, str, float]:
     """
     Complete transcription pipeline: extract audio and transcribe with Whisper.
@@ -158,6 +212,8 @@ def transcribe_video(
         language: Source language code
         whisper_server_url: URL of Whisper server
         translate_to_english: If True, translate to English using Whisper
+        task_id: Optional task ID for progress updates
+        task_manager: Optional TaskManager instance for progress updates
 
     Returns:
         Tuple of (srt_content, detected_language, language_probability)
@@ -175,7 +231,9 @@ def transcribe_video(
             audio_path,
             language,
             whisper_server_url,
-            translate_to_english
+            translate_to_english,
+            task_id,
+            task_manager
         )
         return result
     except Exception as e:

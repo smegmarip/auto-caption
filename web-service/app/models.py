@@ -75,3 +75,23 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Service status")
     whisper_available: bool = Field(..., description="Whisper server availability")
     libretranslate_available: bool = Field(..., description="LibreTranslate service availability")
+
+
+class TaskStartResponse(BaseModel):
+    """Response model for starting an async task"""
+
+    task_id: str = Field(..., description="Unique task identifier")
+    status: str = Field(..., description="Initial task status (queued)")
+
+
+class TaskStatusResponse(BaseModel):
+    """Response model for task status polling"""
+
+    task_id: str = Field(..., description="Task identifier")
+    status: str = Field(..., description="Current task status (queued, running, completed, failed)")
+    progress: float = Field(..., description="Task progress (0.0 to 1.0)")
+    stage: Optional[str] = Field(None, description="Current execution stage")
+    error: Optional[str] = Field(None, description="Error message if task failed")
+    result: Optional[dict] = Field(None, description="Task result if completed")
+    created_at: Optional[str] = Field(None, description="Task creation timestamp")
+    updated_at: Optional[str] = Field(None, description="Task last update timestamp")

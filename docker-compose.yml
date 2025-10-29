@@ -4,10 +4,14 @@ services:
   whisper-server:
     build:
       context: ./whisper-server
-      dockerfile: Dockerfile
+      dockerfile: ${WHISPER_DOCKERFILE:-Dockerfile}
     container_name: whisper-server
     hostname: whisper-server
-    runtime: nvidia
+    runtime: ${DOCKER_RUNTIME:-nvidia}
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-float16}
     volumes:
       - ./whisper-server/models:/opt/models
       - ./whisper-server/whisper_http_server.py:/opt/whisper_http_server.py
