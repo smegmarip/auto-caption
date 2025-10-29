@@ -8,10 +8,24 @@
   const csLib = window.csLib;
 
   /**
-   * API endpoint for the auto-caption web service.
+   * Plugin API and hooks for toast notifications.
+   * @constant {object}
+   */
+  const api = window.PluginApi;
+  const { useToast } = api.hooks;
+  const Toast = useToast();
+
+  /**
+   * Plugin ID for the auto-caption RPC plugin.
    * @constant {string}
    */
-  const API_ENDPOINT = "http://auto-caption-web:8000/auto-caption";
+  const PLUGIN_ID = "stash-auto-caption";
+
+  /**
+   * Plugin configuration cache.
+   * @type {object|null}
+   */
+  let pluginConfig = null;
 
   /**
    * Language dictionary mapping language names to their respective codes.
@@ -195,29 +209,6 @@
   }
 
   /**
-   * Scans the caption at the given path.
-   *
-   * @param {string} captionPath - The path of the caption to scan.
-   * @returns {Promise<string>} - A promise that resolves with the job ID.
-   */
-  async function scanCaption(captionPath) {
-    const captionParent = captionPath.substring(
-      0,
-      captionPath.lastIndexOf("/")
-    );
-    const reqData = {
-      variables: { input: { paths: [captionParent] } },
-      query: `mutation MetadataScan($input: ScanMetadataInput!) {
-            metadataScan(
-                input: $input
-            )
-        }`,
-    };
-    var result = await csLib.callGQL(reqData);
-    return result.metadataScan;
-  }
-
-  /**
    * Retrieves the status of a job with the given job ID.
    *
    * @param {string} jobId - The ID of the job to retrieve the status for.
@@ -306,8 +297,8 @@
         const tracks = player.remoteTextTracks();
         for (let i = 0; i < tracks.length; i++) {
           const track = tracks[i];
-          if (track.kind === 'captions' && track.language === 'en') {
-            track.mode = 'showing';
+          if (track.kind === "captions" && track.language === "en") {
+            track.mode = "showing";
           }
         }
         return true;
@@ -317,7 +308,115 @@
   }
 
   /**
-   * Processes the remote caption for a given scene language and video path.
+   * Adds a caption processing indicator to the video player control bar.
+   *
+   * @returns {HTMLElement|null} - The indicator element or null if player not found.
+   */
+  function addCaptionProcessingIndicator() {
+    const player = document.getElementById("VideoJsPlayer");
+    if (!player) return null;
+
+    const controlBar = player.querySelector(".vjs-control-bar");
+    if (!controlBar) return null;
+
+    // Check if already exists
+    if (document.getElementById("caption-processing-indicator")) {
+      return document.getElementById("caption-processing-indicator");
+    }
+
+    // Add CSS for spin animation if not already added
+    if (!document.getElementById("caption-indicator-styles")) {
+      const style = document.createElement("style");
+      style.id = "caption-indicator-styles";
+      style.textContent = `
+        @keyframes caption-spinner-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        #caption-processing-indicator {
+          color: #ffa500;
+          opacity: 0.9;
+          cursor: default;
+          pointer-events: none;
+        }
+        #caption-processing-indicator svg {
+          width: 1.5em;
+          height: 1.5em;
+          animation: caption-spinner-spin 2s linear infinite;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Create indicator button
+    const indicator = document.createElement("div");
+    indicator.id = "caption-processing-indicator";
+    indicator.className = "vjs-control vjs-button";
+    indicator.title = "Generating captions...";
+    indicator.style.display = "none";
+
+    // Use inline SVG spinner (Font Awesome spinner path)
+    indicator.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+        <path fill="currentColor"
+              d="M304 48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zm0 416a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM48 304a48 48 0 1 0 0-96 48 48 0 1 0 0 96zm464-48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM142.9 437A48 48 0 1 0 75 369.1 48 48 0 1 0 142.9 437zm0-294.2A48 48 0 1 0 75 75a48 48 0 1 0 67.9 67.9zM369.1 437A48 48 0 1 0 437 369.1 48 48 0 1 0 369.1 437z"/>
+      </svg>
+    `;
+
+    // Insert before fullscreen button
+    const fullscreenBtn = controlBar.querySelector(".vjs-fullscreen-control");
+    if (fullscreenBtn) {
+      controlBar.insertBefore(indicator, fullscreenBtn);
+    } else {
+      controlBar.appendChild(indicator);
+    }
+
+    return indicator;
+  }
+
+  /**
+   * Shows the caption processing indicator in the video player.
+   */
+  function showCaptionProcessing() {
+    const indicator = addCaptionProcessingIndicator();
+    if (indicator) {
+      indicator.style.display = "block";
+    }
+  }
+
+  /**
+   * Hides the caption processing indicator in the video player.
+   */
+  function hideCaptionProcessing() {
+    const indicator = document.getElementById("caption-processing-indicator");
+    if (indicator) {
+      indicator.style.display = "none";
+    }
+  }
+
+  /**
+   * Loads plugin configuration from Stash settings.
+   * @returns {Promise<object>} - A promise that resolves with the plugin configuration.
+   */
+  async function loadPluginConfig() {
+    if (pluginConfig) return pluginConfig;
+
+    try {
+      const config = await window.stashFunctions.getPluginConfig(PLUGIN_ID);
+      pluginConfig = {
+        serviceUrl: config.serviceUrl || "",
+      };
+      return pluginConfig;
+    } catch (error) {
+      console.error("Failed to load plugin config:", error);
+      return { serviceUrl: "" };
+    }
+  }
+
+  /**
+   * Processes the remote caption for a given scene by triggering the Go RPC plugin.
+   * This function is STATELESS - it only triggers the job and updates the UI.
+   * All stateful operations (caption creation, tag management) are handled by the Go RPC plugin.
    *
    * @param {object} scene - The scene object to process the caption for.
    * @param {string} sceneLanguage - The language of the scene.
@@ -327,45 +426,80 @@
     if (!scene || !sceneLanguage) return false;
     const scene_id = scene.id;
     const videoPath = scene.files[0].path;
-    return fetch(API_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        video_path: videoPath,
-        language: LANG_DICT[sceneLanguage],
-        translate_to: LANG_DICT["English"],
-      }),
-    }).then(async (response) => {
-      if (response.ok) {
-        const captionData = await response.json(),
-          captionPath = captionData.file_path;
-        if (captionPath) {
-          scanCaption(captionPath)
-            .then(async (jobId) => awaitJobFinished(jobId))
-            .then(async () => {
-              const captionUrl = await getCaptionForScene(scene_id);
-              if (captionUrl) {
-                await toggleSubtitled(scene, true);
-                return loadPlayerCaption(captionUrl);
-              }
-            })
-            .catch((error) => {
-              console.error("Error scanning caption:", error);
-              return false;
-            });
-        } else {
-          console.error("No caption path returned from API.");
-          return false;
-        }
-      } else {
-        console.error(
-          "Error from auto-caption API:",
-          response.status,
-          response.statusText
-        );
+    const sceneTitle = scene.title || `Scene ${scene_id}`;
+
+    try {
+      console.log(`Starting caption generation for scene ${scene_id} (${sceneLanguage})`);
+
+      // Load plugin settings
+      const config = await loadPluginConfig();
+
+      // Show progress indicators
+      showCaptionProcessing();
+      Toast.info(`Generating captions for "${sceneTitle}"...`);
+
+      // Trigger the Go RPC plugin task
+      // Note: The Go RPC plugin handles ALL stateful operations:
+      // - Caption generation
+      // - Tag management (adding "Subtitled" tag)
+      // - Metadata scan triggering
+      const result = await window.stashFunctions.runPluginTask(
+        PLUGIN_ID,
+        "Generate Caption for Scene",
+        [
+          { key: "mode", value: { str: "generate" } },
+          { key: "scene_id", value: { str: scene_id } },
+          { key: "video_path", value: { str: videoPath } },
+          { key: "language", value: { str: LANG_DICT[sceneLanguage] } },
+          { key: "translate_to", value: { str: LANG_DICT["English"] } },
+          { key: "service_url", value: { str: config.serviceUrl } },
+        ]
+      );
+
+      if (!result || !result.runPluginTask) {
+        console.error("Failed to start caption generation task - no job ID returned");
+        hideCaptionProcessing();
+        Toast.error("Failed to start caption generation");
         return false;
       }
-    });
+
+      const jobId = result.runPluginTask;
+      console.log(`Caption generation job started: ${jobId}`);
+
+      try {
+        await awaitJobFinished(jobId);
+        console.log(`Caption generation job completed: ${jobId}`);
+      } catch (jobError) {
+        console.error(`Caption generation job failed: ${jobError.message || jobError}`);
+        hideCaptionProcessing();
+        Toast.error(`Caption generation failed: ${jobError.message || "Unknown error"}`);
+        return false;
+      }
+
+      // Job completed successfully, update UI
+      // Query scene again to get updated caption URL
+      const captionUrl = await getCaptionForScene(scene_id);
+      if (captionUrl) {
+        console.log(`Caption loaded: ${captionUrl}`);
+        const loaded = loadPlayerCaption(captionUrl);
+        hideCaptionProcessing();
+        if (loaded) {
+          Toast.success("Captions generated successfully!");
+        }
+        return loaded;
+      } else {
+        console.warn("Caption generation completed but no caption file found");
+        hideCaptionProcessing();
+        Toast.error("Caption file not found after generation");
+        return false;
+      }
+
+    } catch (error) {
+      console.error("Error processing caption with RPC plugin:", error);
+      hideCaptionProcessing();
+      Toast.error(`Caption processing error: ${error.message || error}`);
+      return false;
+    }
   }
 
   /**

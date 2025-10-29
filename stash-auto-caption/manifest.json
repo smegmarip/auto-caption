@@ -1,0 +1,27 @@
+{
+  "id": "stash-auto-caption",
+  "name": "Stash Auto Caption",
+  "description": "Automatic subtitle generation and translation for foreign language videos using Whisper AI with dual-architecture plugin system (Go RPC + JavaScript)",
+  "version": "2.0.0",
+  "url": "https://github.com/yourusername/stash-auto-caption",
+  "author": "Your Name",
+  "requires": {
+    "stash": ">=0.26.0",
+    "plugins": ["CommunityScriptsUILibrary"]
+  },
+  "features": [
+    "Whisper AI transcription with 99+ language support",
+    "Real-time progress tracking during transcription",
+    "Built-in English translation",
+    "Go RPC backend for long-running tasks",
+    "JavaScript UI integration with video player",
+    "Automatic foreign language detection",
+    "Smart caching of existing subtitles",
+    "Toast notifications for status updates",
+    "Player progress indicator during generation"
+  ],
+  "setup": {
+    "requires": ["CommunityScriptsUILibrary"],
+    "optional": []
+  }
+}

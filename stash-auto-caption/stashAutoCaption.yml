@@ -1,13 +1,25 @@
 name: Stash Auto Caption
-# requires: CommunityScriptsUILibrary
 description: Provides automatic translation and captioning for foreign language videos.
-version: 1.0.0
+version: 2.0.0
+url: https://github.com/yourusername/stash-auto-caption
+settings:
+  serviceUrl:
+    displayName: Auto-Caption Service URL
+    description: URL of the auto-caption web service (leave empty for auto-detection)
+    type: STRING
 ui:
   requires:
     - CommunityScriptsUILibrary
   javascript:
-    - stashFunctions.js
-    - stashAutoCaption.js
+    - js/stashFunctions.js
+    - js/stashAutoCaption.js
   csp:
-    connect-src:
-      - http://auto-caption-web:8000
+    connect-src: []
+exec:
+  - gorpc/stash-auto-caption-rpc
+interface: rpc
+tasks:
+  - name: Generate Caption for Scene
+    description: Generates subtitles for a scene using Whisper transcription
+    defaultArgs:
+      mode: generate
