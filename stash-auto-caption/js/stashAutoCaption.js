@@ -8,14 +8,6 @@
   const csLib = window.csLib;
 
   /**
-   * Plugin API and hooks for toast notifications.
-   * @constant {object}
-   */
-  const api = window.PluginApi;
-  const { useToast } = api.hooks;
-  const Toast = useToast();
-
-  /**
    * Plugin ID for the auto-caption RPC plugin.
    * @constant {string}
    */
@@ -41,6 +33,17 @@
     Russian: "ru",
     Dutch: "nl",
     Japanese: "ja",
+  };
+
+  /**
+   * Toast notification templates (non-React implementation).
+   * @constant {object}
+   */
+  const toastTemplate = {
+    top: `<div class="fade toast success show" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="toast-header"><span class="mr-auto"></span><button type="button" class="close ml-2 mb-1" data-dismiss="toast"><span aria-hidden="true">×</span><span class="sr-only">Close</span></button></div>
+      <div class="toast-body">`,
+    bottom: `</div></div>`,
   };
 
   /**
@@ -102,26 +105,6 @@
     };
     var result = await csLib.callGQL(reqData);
     return result.findScene;
-  }
-
-  /**
-   * Retrieves the tags associated with a given scene ID.
-   *
-   * @param {string} scene_id - The ID of the scene to retrieve tags for.
-   * @returns {Promise<object[]>} - A promise that resolves with an array of tag objects.
-   */
-  async function getTagsForScene(scene_id) {
-    const reqData = {
-      query: `{
-        findScene(id: "${scene_id}") {
-          tags {
-            id
-          }
-        }
-      }`,
-    };
-    var result = await csLib.callGQL(reqData);
-    return result.findScene.tags;
   }
 
   /**
@@ -249,6 +232,19 @@
         }
       }, 100);
     });
+  }
+
+  /**
+   * Displays a toast notification message.
+   * @param {string} message - The message to display.
+   */
+  function addToast(message) {
+    const $toast = $(toastTemplate.top + message + toastTemplate.bottom);
+    const rmToast = () => $toast.remove();
+
+    $toast.find("button.close").click(rmToast);
+    $(".toast-container").append($toast);
+    setTimeout(rmToast, 3000);
   }
 
   /**
@@ -429,14 +425,16 @@
     const sceneTitle = scene.title || `Scene ${scene_id}`;
 
     try {
-      console.log(`Starting caption generation for scene ${scene_id} (${sceneLanguage})`);
+      console.log(
+        `Starting caption generation for scene ${scene_id} (${sceneLanguage})`
+      );
 
       // Load plugin settings
       const config = await loadPluginConfig();
 
       // Show progress indicators
       showCaptionProcessing();
-      Toast.info(`Generating captions for "${sceneTitle}"...`);
+      addToast(`Generating captions for "${sceneTitle}"...`);
 
       // Trigger the Go RPC plugin task
       // Note: The Go RPC plugin handles ALL stateful operations:
@@ -457,9 +455,11 @@
       );
 
       if (!result || !result.runPluginTask) {
-        console.error("Failed to start caption generation task - no job ID returned");
+        console.error(
+          "Failed to start caption generation task - no job ID returned"
+        );
         hideCaptionProcessing();
-        Toast.error("Failed to start caption generation");
+        addToast("Failed to start caption generation");
         return false;
       }
 
@@ -470,9 +470,13 @@
         await awaitJobFinished(jobId);
         console.log(`Caption generation job completed: ${jobId}`);
       } catch (jobError) {
-        console.error(`Caption generation job failed: ${jobError.message || jobError}`);
+        console.error(
+          `Caption generation job failed: ${jobError.message || jobError}`
+        );
         hideCaptionProcessing();
-        Toast.error(`Caption generation failed: ${jobError.message || "Unknown error"}`);
+        addToast(
+          `Caption generation failed: ${jobError.message || "Unknown error"}`
+        );
         return false;
       }
 
@@ -484,20 +488,19 @@
         const loaded = loadPlayerCaption(captionUrl);
         hideCaptionProcessing();
         if (loaded) {
-          Toast.success("Captions generated successfully!");
+          addToast("Captions generated successfully!");
         }
         return loaded;
       } else {
         console.warn("Caption generation completed but no caption file found");
         hideCaptionProcessing();
-        Toast.error("Caption file not found after generation");
+        addToast("Caption file not found after generation");
         return false;
       }
-
     } catch (error) {
       console.error("Error processing caption with RPC plugin:", error);
       hideCaptionProcessing();
-      Toast.error(`Caption processing error: ${error.message || error}`);
+      addToast(`Caption processing error: ${error.message || error}`);
       return false;
     }
   }

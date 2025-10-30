@@ -11,10 +11,12 @@ ui:
   requires:
     - CommunityScriptsUILibrary
   javascript:
+    - https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js
     - js/stashFunctions.js
     - js/stashAutoCaption.js
   csp:
-    connect-src: []
+    script-src:
+      - https://cdn.jsdelivr.net
 exec:
   - gorpc/stash-auto-caption-rpc
 interface: rpc
