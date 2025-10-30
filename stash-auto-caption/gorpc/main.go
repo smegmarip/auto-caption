@@ -314,32 +314,40 @@ func (a *autoCaptionAPI) pollTaskStatus(serviceURL, taskID string) error {
 	}
 }
 
-// scanCaptionMetadata triggers a Stash metadata scan for the caption's directory
+type ScanMetadataInput struct {
+	Paths []string `json:"paths"`
+}
+
+type SceneUpdateInput struct {
+	ID     graphql.ID   `json:"id"`
+	TagIds []graphql.ID `json:"tag_ids"`
+}
+
+type TagFragment struct {
+	ID   graphql.ID "json:\"id\" graphql:\"id\""
+	Name string 	"json:\"name\" graphql:\"name\""
+}
+
+type SceneFragment struct {
+	ID 		graphql.ID 		"json:\"id\" graphql:\"id\""
+	Tags	[]*TagFragment 	"json:\"tags\" graphql:\"tags\""
+}
+
+// scanCaptionMetadata triggers a Stash metadata scan for the caption scene
 func (a *autoCaptionAPI) scanCaptionMetadata(captionPath string) error {
-	// Extract parent directory
-	var captionDir string
-	for i := len(captionPath) - 1; i >= 0; i-- {
-		if captionPath[i] == '/' || captionPath[i] == '\\' {
-			captionDir = captionPath[:i]
-			break
-		}
-	}
-
-	if captionDir == "" {
-		return fmt.Errorf("could not determine caption directory")
-	}
-
-	log.Infof("Triggering metadata scan for: %s", captionDir)
+	log.Infof("Triggering metadata scan for: %s", captionPath)
 
 	// Execute GraphQL metadataScan mutation
 	var mutation struct {
 		MetadataScan graphql.String `graphql:"metadataScan(input: $input)"`
 	}
 
+	input := ScanMetadataInput{
+		Paths: []string{captionPath},
+	}
+
 	variables := map[string]interface{}{
-		"input": map[string]interface{}{
-			"paths": []string{captionDir},
-		},
+		"input": input,
 	}
 
 	ctx := context.Background()
@@ -358,39 +366,36 @@ func (a *autoCaptionAPI) scanCaptionMetadata(captionPath string) error {
 func (a *autoCaptionAPI) addSubtitledTag(sceneID string) error {
 	ctx := context.Background()
 
-	// First, find the "Subtitled" tag
+	// First, find the "Subtitled" tag using allTags
 	var tagQuery struct {
-		FindTag *struct {
-			ID graphql.String
-		} `graphql:"findTag(name: $tagName)"`
+		AllTags []TagFragment `graphql:"allTags"`
 	}
 
-	tagVariables := map[string]interface{}{
-		"tagName": graphql.String("Subtitled"),
-	}
-
-	err := a.graphqlClient.Query(ctx, &tagQuery, tagVariables)
+	err := a.graphqlClient.Query(ctx, &tagQuery, nil)
 	if err != nil {
-		return fmt.Errorf("failed to find 'Subtitled' tag: %w", err)
+		return fmt.Errorf("failed to query tags: %w", err)
 	}
 
-	if tagQuery.FindTag == nil {
+	// Find the "Subtitled" tag by name
+	var subtitledTagID graphql.ID
+	for _, tag := range tagQuery.AllTags {
+		if string(tag.Name) == "Subtitled" {
+			subtitledTagID = tag.ID
+			break
+		}
+	}
+
+	if subtitledTagID == "" {
 		return fmt.Errorf("'Subtitled' tag not found - please create it in Stash")
 	}
 
-	subtitledTagID := string(tagQuery.FindTag.ID)
-
 	// Get current scene tags
 	var sceneQuery struct {
-		FindScene struct {
-			Tags []struct {
-				ID graphql.String
-			}
-		} `graphql:"findScene(id: $sceneId)"`
+		FindScene *SceneFragment `graphql:"findScene(id: $sceneId)"`
 	}
 
 	sceneVariables := map[string]interface{}{
-		"sceneId": graphql.String(sceneID),
+		"sceneId": graphql.ID(sceneID),
 	}
 
 	err = a.graphqlClient.Query(ctx, &sceneQuery, sceneVariables)
@@ -399,12 +404,11 @@ func (a *autoCaptionAPI) addSubtitledTag(sceneID string) error {
 	}
 
 	// Check if tag already exists
-	tagIDs := []string{}
+	tagIDs := []graphql.ID{}
 	hasSubtitledTag := false
 	for _, tag := range sceneQuery.FindScene.Tags {
-		tagID := string(tag.ID)
-		tagIDs = append(tagIDs, tagID)
-		if tagID == subtitledTagID {
+		tagIDs = append(tagIDs, tag.ID)
+		if tag.ID == subtitledTagID {
 			hasSubtitledTag = true
 		}
 	}
@@ -419,15 +423,18 @@ func (a *autoCaptionAPI) addSubtitledTag(sceneID string) error {
 
 	var updateMutation struct {
 		SceneUpdate struct {
-			ID graphql.String
+			ID graphql.ID
 		} `graphql:"sceneUpdate(input: $input)"`
 	}
 
+	// Define input struct matching the example pattern
+	input := SceneUpdateInput{
+		ID:     graphql.ID(sceneID),
+		TagIds: tagIDs,
+	}
+
 	updateVariables := map[string]interface{}{
-		"input": map[string]interface{}{
-			"id":      graphql.String(sceneID),
-			"tag_ids": tagIDs,
-		},
+		"input": input,
 	}
 
 	err = a.graphqlClient.Mutate(ctx, &updateMutation, updateVariables)
