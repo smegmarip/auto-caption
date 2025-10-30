@@ -7,6 +7,8 @@
    */
   const csLib = window.csLib;
 
+  const { getPluginConfig, runPluginTask } = stashFunctions;
+
   /**
    * Plugin ID for the auto-caption RPC plugin.
    * @constant {string}
@@ -398,9 +400,9 @@
     if (pluginConfig) return pluginConfig;
 
     try {
-      const config = await window.stashFunctions.getPluginConfig(PLUGIN_ID);
+      const config = await getPluginConfig(PLUGIN_ID);
       pluginConfig = {
-        serviceUrl: config.serviceUrl || "",
+        serviceUrl: config?.serviceUrl || "",
       };
       return pluginConfig;
     } catch (error) {
@@ -441,7 +443,7 @@
       // - Caption generation
       // - Tag management (adding "Subtitled" tag)
       // - Metadata scan triggering
-      const result = await window.stashFunctions.runPluginTask(
+      const result = await runPluginTask(
         PLUGIN_ID,
         "Generate Caption for Scene",
         [
