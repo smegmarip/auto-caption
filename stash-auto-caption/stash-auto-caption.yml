@@ -13,7 +13,7 @@ ui:
   javascript:
     - https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js
     - js/stashFunctions.js
-    - js/stashAutoCaption.js
+    - js/stash-auto-caption.js
   csp:
     script-src:
       - https://cdn.jsdelivr.net
