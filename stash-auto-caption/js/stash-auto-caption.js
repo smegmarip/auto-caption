@@ -205,6 +205,7 @@
       query: `query ($id: ID!) {
             findJob(input: { id: $id }) {
                 status
+                progress
             }
         }`,
     };
@@ -213,7 +214,7 @@
   }
 
   /**
-   * Waits for a job with the given job ID to finish.
+   * Waits for a job with the given job ID to finish, polling for progress updates.
    *
    * @param {string} jobId - The ID of the job to wait for.
    * @returns {Promise<boolean>} - A promise that resolves when the job is finished.
@@ -221,18 +222,25 @@
   async function awaitJobFinished(jobId) {
     return new Promise((resolve, reject) => {
       const interval = setInterval(async () => {
-        const status = await getJobStatus(jobId).then(
-          (data) => data.findJob?.status
-        );
-        // console.log(`Job status: ${status}`)
+        const result = await getJobStatus(jobId);
+        const status = result.findJob?.status;
+        const progress = result.findJob?.progress;
+
+        // Update progress indicator if progress value is available
+        if (typeof progress === "number" && progress >= 0) {
+          updateCaptionProgress(progress);
+        }
+
+        // console.log(`Job status: ${status}, progress: ${progress}`)
         if (status === "FINISHED") {
           clearInterval(interval);
+          updateCaptionProgress(1.0); // Set to 100% on completion
           resolve(true);
         } else if (status === "FAILED") {
           clearInterval(interval);
           reject(new Error("Job failed"));
         }
-      }, 100);
+      }, 500); // Poll every 500ms for smoother progress updates
     });
   }
 
@@ -322,25 +330,38 @@
       return document.getElementById("caption-processing-indicator");
     }
 
-    // Add CSS for spin animation if not already added
+    // Add CSS for the indicator if not already added
     if (!document.getElementById("caption-indicator-styles")) {
       const style = document.createElement("style");
       style.id = "caption-indicator-styles";
       style.textContent = `
-        @keyframes caption-spinner-spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
         #caption-processing-indicator {
-          color: #ffa500;
-          opacity: 0.9;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           cursor: default;
           pointer-events: none;
+          padding: 0;
+          margin: 0;
+          width: 3em;
+          height: 100%;
+        }
+        #caption-processing-indicator .vjs-icon-wrapper {
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         #caption-processing-indicator svg {
-          width: 1.5em;
-          height: 1.5em;
-          animation: caption-spinner-spin 2s linear infinite;
+          width: 1.8em;
+          height: 1.8em;
+          fill: #fff;
+        }
+        #caption-processing-indicator text {
+          font-family: "Arial Narrow", "Liberation Sans Narrow", "Nimbus Sans Narrow", Arial, sans-serif;
+          font-size: 20px;
+          font-weight: normal;
+          fill: #000;
+          text-anchor: middle;
         }
       `;
       document.head.appendChild(style);
@@ -353,17 +374,22 @@
     indicator.title = "Generating captions...";
     indicator.style.display = "none";
 
-    // Use inline SVG spinner (Font Awesome spinner path)
+    // Use captions SVG icon with progress text overlay
     indicator.innerHTML = `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-        <path fill="currentColor"
-              d="M304 48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zm0 416a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM48 304a48 48 0 1 0 0-96 48 48 0 1 0 0 96zm464-48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM142.9 437A48 48 0 1 0 75 369.1 48 48 0 1 0 142.9 437zm0-294.2A48 48 0 1 0 75 75a48 48 0 1 0 67.9 67.9zM369.1 437A48 48 0 1 0 437 369.1 48 48 0 1 0 369.1 437z"/>
-      </svg>
+      <div class="vjs-icon-wrapper">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+          <rect x="6" y="8" width="36" height="32" rx="4" ry="4" />
+          <text id="caption-progress-text" x="24" y="30" font-size="14" font-family="Arial Narrow, Liberation Sans Narrow, Nimbus Sans Narrow, Arial, sans-serif" font-weight="normal" fill="#000" text-anchor="middle">0%</text>
+        </svg>
+      </div>
     `;
 
-    // Insert before fullscreen button
+    // Insert before caption button (or fullscreen if caption button doesn't exist)
+    const captionBtn = controlBar.querySelector(".vjs-subs-caps-button");
     const fullscreenBtn = controlBar.querySelector(".vjs-fullscreen-control");
-    if (fullscreenBtn) {
+    if (captionBtn) {
+      controlBar.insertBefore(indicator, captionBtn);
+    } else if (fullscreenBtn) {
       controlBar.insertBefore(indicator, fullscreenBtn);
     } else {
       controlBar.appendChild(indicator);
@@ -373,12 +399,26 @@
   }
 
   /**
+   * Updates the progress percentage displayed in the caption processing indicator.
+   *
+   * @param {number} progress - Progress value between 0 and 1.
+   */
+  function updateCaptionProgress(progress) {
+    const progressText = document.getElementById("caption-progress-text");
+    if (progressText) {
+      const percentage = Math.round(progress * 100);
+      progressText.textContent = `${percentage}`;
+    }
+  }
+
+  /**
    * Shows the caption processing indicator in the video player.
    */
   function showCaptionProcessing() {
     const indicator = addCaptionProcessingIndicator();
     if (indicator) {
-      indicator.style.display = "block";
+      indicator.style.display = "flex";
+      updateCaptionProgress(0);
     }
   }
 

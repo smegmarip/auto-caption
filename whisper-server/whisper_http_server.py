@@ -356,13 +356,8 @@ def transcribe_srt():
                 temp_path,
                 language=language,
                 task=task,
-                word_timestamps=False,  # Segment-level is fine for SRT
-                vad_filter=True,
-                vad_parameters={
-                    "threshold": 0.2,              # Lower threshold = more sensitive to speech
-                    "min_speech_duration_ms": 100, # Catch brief utterances
-                    "min_silence_duration_ms": 500 # Less aggressive silence cuts
-                }
+                word_timestamps=True,  # Enable word-level timestamps for better accuracy
+                vad_filter=False  # Disable VAD to preserve accurate timestamps
             )
 
             # Use streaming mode if task_id provided, otherwise legacy mode
