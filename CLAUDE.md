@@ -326,6 +326,26 @@ ID graphql.String
 ID graphql.ID
 ```
 
+### VAD Filter and Timestamp Accuracy
+```python
+# ❌ WRONG - VAD filter causes timestamp misalignment
+whisper_model.transcribe(
+    audio_path,
+    vad_filter=True,  # Cuts silence, breaks timing
+    word_timestamps=False
+)
+
+# ✅ CORRECT - Preserve accurate timestamps
+whisper_model.transcribe(
+    audio_path,
+    vad_filter=False,  # Keep original timeline
+    word_timestamps=True  # Better accuracy
+)
+```
+**Issue:** VAD filter removes silence periods, causing caption timestamps to index dialog over gaps in the audio, making captions appear during silent portions of the video.
+
+**Solution:** Disable VAD filter to preserve the original audio timeline. Enable `word_timestamps` for improved timing precision.
+
 ### No Duplication
 Functions must be **moved** from JavaScript to Go, never copied. Single source of truth.
 
@@ -353,6 +373,6 @@ Functions must be **moved** from JavaScript to Go, never copied. Single source o
 
 ---
 
-**Last Updated:** 2025-10-30
-**Version:** 2.0.0 (whisper-rpc branch)
+**Last Updated:** 2025-10-31
+**Version:** 2.0.1 (whisper-rpc branch)
 **Status:** Production Ready

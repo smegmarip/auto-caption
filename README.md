@@ -1,7 +1,7 @@
 # Auto-Caption Service
 
 **Branch:** `whisper-rpc` (Whisper AI + Stash RPC integration)
-**Status:** ~98% Complete - Ready for deployment testing
+**Status:** Production Ready
 
 Dockerized subtitle generation service using Whisper AI for transcription with integrated Stash plugin support via Go RPC backend + JavaScript UI.
 
@@ -15,7 +15,7 @@ Dockerized subtitle generation service using Whisper AI for transcription with i
 - **Async Task Management**: Non-blocking job queue with progress reporting
 - **RESTful API**: FastAPI-based service with async endpoints
 - **Toast Notifications**: Real-time status updates in Stash UI
-- **Player Progress Indicator**: Visual spinner during caption generation
+- **Player Progress Indicator**: Caption icon with real-time percentage display (0-100%)
 - **Automatic Tag Management**: Go RPC handles "Subtitled" tag updates
 - **Flexible URL Resolution**: Supports IP addresses, hostnames, container names, and localhost
 
@@ -166,8 +166,8 @@ In Stash UI:
 2. Navigate to scene page
 3. Plugin auto-detects foreign language and triggers caption generation
 4. Toast notification: "Generating captions for..."
-5. Player shows orange spinner indicator
-6. Monitor progress in **Jobs** queue (0-100%)
+5. Player shows caption icon with live progress percentage (0-100%)
+6. Monitor progress in **Jobs** queue
 7. Caption loads automatically when complete
 8. "Subtitled" tag added automatically by Go RPC plugin
 
@@ -277,6 +277,8 @@ auto-caption/
 ├── .env.example                    # Environment template
 ├── CLAUDE.md                       # Complete implementation docs
 ├── README.md                       # This file
+├── docs/
+│   └── adr/                        # Architecture Decision Records
 │
 ├── whisper-server/
 │   ├── Dockerfile                  # Whisper AI container
@@ -295,9 +297,10 @@ auto-caption/
 │       └── utils.py                # File operations
 │
 └── stash-auto-caption/
-    ├── stashAutoCaption.yml        # Plugin config
-    ├── stashAutoCaption.js         # UI plugin (language detection, player)
-    ├── stashFunctions.js           # Utility functions
+    ├── stash-auto-caption.yml      # Plugin config
+    ├── js/
+    │   ├── stash-auto-caption.js   # UI plugin (language detection, player)
+    │   └── stashFunctions.js       # Utility functions
     └── gorpc/
         ├── main.go                 # Go RPC plugin
         ├── go.mod                  # Dependencies
@@ -435,11 +438,17 @@ GOOS=linux GOARCH=amd64 go build -o stash-auto-caption-rpc main.go
 For complete implementation details, see [CLAUDE.md](CLAUDE.md):
 
 - Architecture decisions and rationale
-- Phase-by-phase implementation history
 - API specifications with examples
 - Troubleshooting guide
 - Key lessons learned
 - Testing procedures
+
+For detailed architecture decisions, see [Architecture Decision Records (ADRs)](docs/adr/):
+
+- [ADR 001: Whisper Over Vosk](docs/adr/001-whisper-over-vosk.md)
+- [ADR 002: Dual Plugin Architecture](docs/adr/002-dual-plugin-architecture.md)
+- [ADR 003: Streaming Progress Tracking](docs/adr/003-streaming-progress-tracking.md)
+- [ADR 004: GraphQL Client Patterns](docs/adr/004-graphql-client-patterns.md)
 
 ## Branch Information
 
