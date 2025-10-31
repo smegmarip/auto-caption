@@ -62,3 +62,4 @@ test-media/
 # Session history and local settings
 session-history.txt
 .claude/
+.mailmap
