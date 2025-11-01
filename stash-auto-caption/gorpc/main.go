@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	graphql "github.com/hasura/go-graphql-client"
@@ -37,7 +38,7 @@ func resolveServiceURL(configuredURL string) string {
 	const defaultContainerName = "auto-caption-web"
 	const defaultPort = "8000"
 	const defaultScheme = "http"
-	const hardcodedFallback = "http://auto-caption-web:8000"
+	var hardcodedFallback = fmt.Sprintf("%s://%s:%s", defaultScheme, defaultContainerName, defaultPort)
 
 	// If no URL configured, use fallback
 	if configuredURL == "" {
@@ -118,9 +119,14 @@ func (a *autoCaptionAPI) Run(input common.PluginInput, output *common.PluginOutp
 	mode := input.Args.String("mode")
 
 	var err error
+	var outputStr string = "Unknown mode. Plugin did not run."
 	switch mode {
 	case "generate":
 		err = a.generateCaption(input)
+		outputStr = "Caption generation completed successfully"
+	case "generateBatch":
+		err = a.generateBatchCaptions(input)
+		outputStr = "Caption generation started successfully"
 	default:
 		err = fmt.Errorf("unknown mode: %s", mode)
 	}
@@ -133,7 +139,6 @@ func (a *autoCaptionAPI) Run(input common.PluginInput, output *common.PluginOutp
 		return nil
 	}
 
-	outputStr := "Caption generation completed successfully"
 	*output = common.PluginOutput{
 		Output: &outputStr,
 	}
@@ -187,29 +192,6 @@ func (a *autoCaptionAPI) generateCaption(input common.PluginInput) error {
 	}
 
 	return nil
-}
-
-// TaskStartRequest represents the request to start a caption task
-type TaskStartRequest struct {
-	VideoPath   string  `json:"video_path"`
-	Language    string  `json:"language"`
-	TranslateTo *string `json:"translate_to,omitempty"`
-}
-
-// TaskStartResponse represents the response from starting a task
-type TaskStartResponse struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
-}
-
-// TaskStatusResponse represents the task status response
-type TaskStatusResponse struct {
-	TaskID   string                 `json:"task_id"`
-	Status   string                 `json:"status"`
-	Progress float64                `json:"progress"`
-	Stage    *string                `json:"stage"`
-	Error    *string                `json:"error"`
-	Result   map[string]interface{} `json:"result"`
 }
 
 func (a *autoCaptionAPI) startCaptionTask(serviceURL, videoPath, language, translateTo string) (string, error) {
@@ -314,134 +296,139 @@ func (a *autoCaptionAPI) pollTaskStatus(serviceURL, taskID string) error {
 	}
 }
 
-type ScanMetadataInput struct {
-	Paths []string `json:"paths"`
+// Language dictionary mapping language names to codes
+var LANG_DICT = map[string]string{
+	"English":    "en",
+	"Spanish":    "es",
+	"French":     "fr",
+	"German":     "de",
+	"Italian":    "it",
+	"Portuguese": "pt",
+	"Russian":    "ru",
+	"Dutch":      "nl",
+	"Japanese":   "ja",
+	"Chinese":    "zh",
+	"Korean":     "ko",
+	"Arabic":     "ar",
 }
 
-type SceneUpdateInput struct {
-	ID     graphql.ID   `json:"id"`
-	TagIds []graphql.ID `json:"tag_ids"`
-}
-
-type TagFragment struct {
-	ID   graphql.ID "json:\"id\" graphql:\"id\""
-	Name string 	"json:\"name\" graphql:\"name\""
-}
-
-type SceneFragment struct {
-	ID 		graphql.ID 		"json:\"id\" graphql:\"id\""
-	Tags	[]*TagFragment 	"json:\"tags\" graphql:\"tags\""
-}
-
-// scanCaptionMetadata triggers a Stash metadata scan for the caption scene
-func (a *autoCaptionAPI) scanCaptionMetadata(captionPath string) error {
-	log.Infof("Triggering metadata scan for: %s", captionPath)
-
-	// Execute GraphQL metadataScan mutation
-	var mutation struct {
-		MetadataScan graphql.String `graphql:"metadataScan(input: $input)"`
-	}
-
-	input := ScanMetadataInput{
-		Paths: []string{captionPath},
-	}
-
-	variables := map[string]interface{}{
-		"input": input,
-	}
-
+// generateBatchCaptions finds all foreign language scenes without captions and queues them
+func (a *autoCaptionAPI) generateBatchCaptions(input common.PluginInput) error {
 	ctx := context.Background()
-	err := a.graphqlClient.Mutate(ctx, &mutation, variables)
+	serviceURL := input.Args.String("service_url")
+
+	log.Info("Starting batch caption generation for all foreign language scenes...")
+
+	// Step 1: Find "Foreign Language" parent tag and its children
+	foreignLangTag, foreignLangChildren, err := a.findForeignLanguageTag()
 	if err != nil {
-		return fmt.Errorf("failed to trigger metadata scan: %w", err)
+		return fmt.Errorf("failed to find Foreign Language tag: %w", err)
 	}
 
-	jobID := string(mutation.MetadataScan)
-	log.Infof("Metadata scan started with job ID: %s", jobID)
-
-	return nil
-}
-
-// addSubtitledTag adds the "Subtitled" tag to a scene
-func (a *autoCaptionAPI) addSubtitledTag(sceneID string) error {
-	ctx := context.Background()
-
-	// First, find the "Subtitled" tag using allTags
-	var tagQuery struct {
-		AllTags []TagFragment `graphql:"allTags"`
+	if foreignLangTag == nil {
+		return fmt.Errorf("'Foreign Language' tag not found - please create it in Stash")
 	}
 
-	err := a.graphqlClient.Query(ctx, &tagQuery, nil)
-	if err != nil {
-		return fmt.Errorf("failed to query tags: %w", err)
-	}
+	log.Debugf("Found 'Foreign Language' tag with %d children", len(foreignLangChildren))
 
-	// Find the "Subtitled" tag by name
-	var subtitledTagID graphql.ID
-	for _, tag := range tagQuery.AllTags {
-		if string(tag.Name) == "Subtitled" {
-			subtitledTagID = tag.ID
-			break
+	// Step 2: Build list of supported language tag IDs
+	supportedLangTags := []TagFragment{}
+	for _, childTag := range foreignLangChildren {
+		// Check if this is a supported language (e.g., "Spanish Language")
+		langName := strings.TrimSuffix(childTag.Name, " Language")
+		if _, ok := LANG_DICT[langName]; ok {
+			supportedLangTags = append(supportedLangTags, childTag)
 		}
 	}
 
-	if subtitledTagID == "" {
-		return fmt.Errorf("'Subtitled' tag not found - please create it in Stash")
+	if len(supportedLangTags) == 0 {
+		return fmt.Errorf("no supported language tags found (e.g., 'Spanish Language', 'Japanese Language')")
 	}
 
-	// Get current scene tags
-	var sceneQuery struct {
-		FindScene *SceneFragment `graphql:"findScene(id: $sceneId)"`
-	}
+	log.Tracef("Found %d supported language tags: %v", len(supportedLangTags), getSupportedLanguageNames(supportedLangTags))
 
-	sceneVariables := map[string]interface{}{
-		"sceneId": graphql.ID(sceneID),
-	}
-
-	err = a.graphqlClient.Query(ctx, &sceneQuery, sceneVariables)
+	// Step 3: Query scenes with any of the foreign language tags
+	scenes, err := a.findScenesWithLanguageTags(supportedLangTags)
 	if err != nil {
-		return fmt.Errorf("failed to query scene: %w", err)
+		return fmt.Errorf("failed to find scenes: %w", err)
 	}
 
-	// Check if tag already exists
-	tagIDs := []graphql.ID{}
-	hasSubtitledTag := false
-	for _, tag := range sceneQuery.FindScene.Tags {
-		tagIDs = append(tagIDs, tag.ID)
-		if tag.ID == subtitledTagID {
-			hasSubtitledTag = true
+	log.Infof("Found %d scenes with foreign language tags", len(scenes))
+
+	// Step 4: Filter scenes to only those without captions
+	scenesToProcess := []SceneForBatch{}
+	for _, scene := range scenes {
+		hasMetadata, hasFile := a.sceneHasCaption(&scene)
+		if !hasFile {
+			scenesToProcess = append(scenesToProcess, scene)
+		} else if !hasMetadata {
+			captionPath := a.getCaptionPathForScene(&scene)
+			if captionPath != nil && *captionPath != "" {
+				err := a.scanCaptionMetadata(*captionPath)
+				if err != nil {
+					log.Warnf("Failed to trigger metadata scan: %v", err)
+				} else {
+					a.addSubtitledTag(string(scene.ID))
+				}
+			}
 		}
 	}
 
-	if hasSubtitledTag {
-		log.Infof("Scene %s already has 'Subtitled' tag", sceneID)
+	log.Infof("Filtered to %d scenes without captions", len(scenesToProcess))
+
+	if len(scenesToProcess) == 0 {
+		log.Info("No scenes to process - all foreign language scenes already have captions!")
 		return nil
 	}
 
-	// Add the Subtitled tag
-	tagIDs = append(tagIDs, subtitledTagID)
+	// Step 5: Queue caption generation task for each scene
+	log.Infof("Queueing %d scenes for caption generation...", len(scenesToProcess))
 
-	var updateMutation struct {
-		SceneUpdate struct {
-			ID graphql.ID
-		} `graphql:"sceneUpdate(input: $input)"`
+	queued := 0
+	failed := 0
+
+	for _, scene := range scenesToProcess {
+		sceneTitle := "Unknown"
+		if scene.Title != nil {
+			sceneTitle = *scene.Title
+		}
+
+		// Detect language from tags
+		language := a.detectSceneLanguage(&scene, supportedLangTags)
+		if language == "" {
+			log.Warnf("Scene %s (%s): Could not detect language, skipping", string(scene.ID), sceneTitle)
+			failed++
+			continue
+		}
+
+		// Get video path
+		if len(scene.Files) == 0 {
+			log.Warnf("Scene %s (%s): No video files found, skipping", string(scene.ID), sceneTitle)
+			failed++
+			continue
+		}
+
+		// Queue the task via RunPluginTask
+		_, err := a.runPluginTaskForScene(ctx, &scene, language, serviceURL)
+		if err != nil {
+			log.Errorf("Scene %s (%s): Failed to queue task: %v", string(scene.ID), sceneTitle, err)
+			failed++
+		} else {
+			log.Infof("Scene %s (%s): Queued for caption generation (language: %s)", string(scene.ID), sceneTitle, language)
+			queued++
+		}
 	}
 
-	// Define input struct matching the example pattern
-	input := SceneUpdateInput{
-		ID:     graphql.ID(sceneID),
-		TagIds: tagIDs,
-	}
+	log.Infof("Batch processing complete: %d tasks queued, %d failed", queued, failed)
 
-	updateVariables := map[string]interface{}{
-		"input": input,
-	}
-
-	err = a.graphqlClient.Mutate(ctx, &updateMutation, updateVariables)
-	if err != nil {
-		return fmt.Errorf("failed to update scene tags: %w", err)
-	}
-
-	log.Infof("Successfully added 'Subtitled' tag to scene %s", sceneID)
 	return nil
+}
+
+// getSupportedLanguageNames returns a list of language names for logging
+func getSupportedLanguageNames(tags []TagFragment) []string {
+	names := []string{}
+	for _, tag := range tags {
+		names = append(names, tag.Name)
+	}
+	return names
 }
