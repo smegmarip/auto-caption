@@ -53,6 +53,13 @@ Thumbs.db
 tmp/
 temp/
 
-# Vosk models (large files ~12GB, downloaded on first run)
-vosk-server/models/*
-!vosk-server/models/.gitkeep
+# Whisper models (large files, downloaded on first run)
+whisper-server/models/
+
+# Test media files
+test-media/
+
+# Session history and local settings
+session-history.txt
+.claude/
+.mailmap

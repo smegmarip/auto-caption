@@ -1,2 +1,0 @@
-# This file keeps the models directory in git
-# Model files will be downloaded on first container start (~12GB total)

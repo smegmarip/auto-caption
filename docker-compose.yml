@@ -1,27 +1,33 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  vosk-server:
+  whisper-server:
     build:
-      context: ./vosk-server
-      dockerfile: Dockerfile
-    container_name: vosk-server
-    hostname: vosk-server
+      context: ./whisper-server
+      dockerfile: ${WHISPER_DOCKERFILE:-Dockerfile}
+    container_name: whisper-server
+    hostname: whisper-server
+    runtime: ${DOCKER_RUNTIME:-nvidia}
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-float16}
     volumes:
-      - ./vosk-server/models:/opt/vosk-models
+      - ./whisper-server/models:/opt/models
+      - ./whisper-server/whisper_http_server.py:/opt/whisper_http_server.py
     networks:
-      - custom_network
+      - auto_caption_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:2700/"]
+      test: ["CMD", "curl", "-f", "http://localhost:2800/"]
       interval: 10s
       timeout: 10s
       retries: 3
-      start_period: 3600s  # 1 hour for first-time model download (~13GB)
+      start_period: 600s # 10 minutes for first-time model download (~3GB for large-v3)
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 8G
 
   libretranslate:
     image: libretranslate/libretranslate:latest
@@ -33,14 +39,20 @@ services:
     volumes:
       - libretranslate-data:/home/libretranslate/.local
     networks:
-      - custom_network
+      - auto_caption_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)"]
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)",
+        ]
       interval: 10s
       timeout: 10s
       retries: 3
-      start_period: 600s  # 10 minutes for model loading
+      start_period: 600s # 10 minutes for model loading
     deploy:
       resources:
         limits:
@@ -52,14 +64,14 @@ services:
     hostname: dependency-checker
     command: sh -c "while true; do sleep 10; done"
     networks:
-      - custom_network
+      - auto_caption_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://vosk-server:2700/ && curl -f http://libretranslate:5000/languages"]
+      test: ["CMD", "sh", "-c", "curl -f http://whisper-server:2800/"]
       interval: 5s
       timeout: 5s
       retries: 1
-      start_period: 3600s
+      start_period: 600s
 
   web-service:
     build:
@@ -68,16 +80,16 @@ services:
     container_name: auto-caption-web
     hostname: auto-caption-web
     ports:
-      - "${WEB_SERVICE_PORT:-9080}:8000"
+      - "${WEB_SERVICE_PORT:-9000}:8000"
     environment:
-      - DEEPL_API_KEY=${DEEPL_API_KEY}
-      - VOSK_SERVER_URL=http://vosk-server:2700
+      - WHISPER_SERVER_URL=http://whisper-server:2800
       - LIBRETRANSLATE_URL=http://libretranslate:5000
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ${UNRAID_MEDIA_PATH}:/data
+      - ./web-service/app:/app/app
     networks:
-      - custom_network
+      - auto_caption_network
     depends_on:
       dependency-checker:
         condition: service_healthy
@@ -90,9 +102,9 @@ services:
       start_period: 10s
 
 networks:
-  custom_network:
-    external: true
+  auto_caption_network:
     name: ${DOCKER_NETWORK:-auto-caption-network}
+    external: true
 
 volumes:
   libretranslate-data:

@@ -1,37 +1,10 @@
 import logging
 import requests
-import deepl
 from typing import Tuple
-from app.subtitle import parse_srt, SubtitleCue
+from app.subtitle import parse_srt
 
 logger = logging.getLogger(__name__)
 
-
-# DeepL language code mappings
-# Source languages use simple codes, target languages use specific variants
-DEEPL_SOURCE_LANG_MAP = {
-    'en': 'EN',
-    'es': 'ES',
-    'ja': 'JA',
-    'pt': 'PT',
-    'ru': 'RU',
-    'fr': 'FR',
-    'de': 'DE',
-    'nl': 'NL',
-    'it': 'IT'
-}
-
-DEEPL_TARGET_LANG_MAP = {
-    'en': 'EN-US',  # Could also use EN-GB
-    'es': 'ES',     # Could also use ES-419 for Latin American
-    'ja': 'JA',
-    'pt': 'PT-BR',  # Could also use PT-PT for European
-    'ru': 'RU',
-    'fr': 'FR',
-    'de': 'DE',
-    'nl': 'NL',
-    'it': 'IT'
-}
 
 # LibreTranslate uses standard codes
 LIBRETRANSLATE_LANG_MAP = {
@@ -45,57 +18,6 @@ LIBRETRANSLATE_LANG_MAP = {
     'nl': 'nl',
     'it': 'it'
 }
-
-
-def translate_with_deepl(
-    text: str,
-    source_lang: str,
-    target_lang: str,
-    api_key: str
-) -> Tuple[str, bool]:
-    """
-    Translate text using DeepL API.
-
-    Args:
-        text: Text to translate
-        source_lang: Source language code
-        target_lang: Target language code
-        api_key: DeepL API key
-
-    Returns:
-        Tuple of (translated_text, success)
-    """
-    try:
-        translator = deepl.Translator(api_key)
-
-        # Map to DeepL language codes (source uses simple codes, target uses variants)
-        deepl_source = DEEPL_SOURCE_LANG_MAP.get(source_lang, source_lang.upper())
-        deepl_target = DEEPL_TARGET_LANG_MAP.get(target_lang, target_lang.upper())
-
-        logger.info(f"Translating with DeepL: {deepl_source} -> {deepl_target}")
-
-        result = translator.translate_text(
-            text,
-            source_lang=deepl_source,
-            target_lang=deepl_target
-        )
-
-        translated_text = result.text
-        logger.info(f"DeepL translation successful ({len(text)} -> {len(translated_text)} chars)")
-
-        return translated_text, True
-
-    except deepl.exceptions.QuotaExceededException:
-        logger.warning("DeepL quota exceeded")
-        return "", False
-
-    except deepl.exceptions.AuthorizationException:
-        logger.error("DeepL API key invalid or unauthorized")
-        return "", False
-
-    except Exception as e:
-        logger.error(f"DeepL translation failed: {e}")
-        return "", False
 
 
 def translate_with_libretranslate(
@@ -157,26 +79,24 @@ def translate_srt(
     srt_content: str,
     source_lang: str,
     target_lang: str,
-    deepl_api_key: str,
     libretranslate_url: str
 ) -> Tuple[str, str]:
     """
     Translate SRT subtitle content, preserving timing.
 
-    Uses DeepL as primary service, falls back to LibreTranslate if DeepL fails.
+    Uses LibreTranslate for translation.
 
     Args:
         srt_content: Original SRT content
         source_lang: Source language code
         target_lang: Target language code
-        deepl_api_key: DeepL API key
         libretranslate_url: URL of LibreTranslate service
 
     Returns:
         Tuple of (translated_srt_content, service_used)
 
     Raises:
-        RuntimeError: If both translation services fail
+        RuntimeError: If translation fails
     """
     logger.info(f"Translating SRT from {source_lang} to {target_lang}")
 
@@ -193,29 +113,16 @@ def translate_srt(
 
     logger.info(f"Translating {len(cues)} subtitle cues ({len(combined_text)} chars)")
 
-    # Try DeepL first
-    translated_text, success = translate_with_deepl(
+    # Translate with LibreTranslate
+    translated_text, success = translate_with_libretranslate(
         combined_text,
         source_lang,
         target_lang,
-        deepl_api_key
+        libretranslate_url
     )
 
-    service_used = "deepl"
-
-    # Fall back to LibreTranslate if DeepL fails
     if not success:
-        logger.warning("DeepL failed, falling back to LibreTranslate")
-        translated_text, success = translate_with_libretranslate(
-            combined_text,
-            source_lang,
-            target_lang,
-            libretranslate_url
-        )
-        service_used = "libretranslate"
-
-    if not success:
-        raise RuntimeError("Both DeepL and LibreTranslate translation failed")
+        raise RuntimeError("LibreTranslate translation failed")
 
     # Split translated text back into lines
     translated_lines = translated_text.split('\n')
@@ -245,6 +152,6 @@ def translate_srt(
 
     translated_srt = '\n'.join(srt_lines)
 
-    logger.info(f"Translation complete using {service_used}")
+    logger.info(f"Translation complete using libretranslate")
 
-    return translated_srt, service_used
+    return translated_srt, "libretranslate"

@@ -1,263 +1,406 @@
-# Auto-Caption Service - Implementation Plan
+# Auto-Caption Service - Whisper + Stash RPC Implementation
 
-## Character/Video Calculation
-**DeepL Free Tier Analysis:**
-- 500,000 characters ÷ 1,020 chars/min = ~490 minutes (~8 hours of video)
-- ~4 full movies per month (2 hours each)
-- ~16 TV episodes per month (30 min each)
-- **Strategy:** Use DeepL as primary, LibreTranslate as fallback when quota exhausted
+## Project Overview
 
-## Architecture Overview
+Automatic subtitle generation service for Stash using Whisper AI transcription. The service integrates with Stash via a dual-architecture approach: Go RPC plugin for ALL backend/stateful operations and JavaScript for UI interactions ONLY.
 
-**Docker Compose stack with 3 services:**
-1. **web-service** (FastAPI) - Main API endpoint on port 8000
-2. **vosk-server** - Speech recognition engine (internal network only)
-3. **libretranslate** - Translation fallback service (internal network only)
+**Current Branch:** `whisper-rpc` (Whisper-based implementation)
+**Main Branch:** `main` (original Vosk-based implementation - deprecated)
+**Status:** Production Ready
+**Repository:** https://github.com/yourusername/stash-auto-caption
 
-## Project Structure
+---
 
+## Quick Start
+
+### Prerequisites
+- Docker & Docker Compose
+- Stash instance running
+- ~4GB disk space (Whisper model)
+
+### Deployment
+
+```bash
+# 1. Clone and configure
+git clone <repo-url> auto-caption
+cd auto-caption
+git checkout whisper-rpc
+cp .env.example .env
+# Edit .env: Set MEDIA_PATH=/path/to/media
+
+# 2. Start services
+docker-compose up -d
+
+# 3. Install Stash plugin
+cp -r stash-auto-caption <STASH_PLUGINS_DIR>/
+chmod +x <STASH_PLUGINS_DIR>/stash-auto-caption/gorpc/stash-auto-caption-rpc
+
+# 4. Reload plugins in Stash UI
+# Settings > Plugins > Reload Plugins
 ```
-auto-caption/
-├── docker-compose.yml
-├── .env.example
-├── README.md
-├── web-service/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── app/
-│       ├── main.py              # FastAPI endpoints
-│       ├── models.py            # Request/response schemas
-│       ├── subtitle.py          # SRT generation/parsing
-│       ├── transcription.py     # Vosk client
-│       ├── translation.py       # DeepL + LibreTranslate
-│       └── utils.py             # File operations
-└── vosk-server/
-    ├── Dockerfile
-    ├── entrypoint.sh            # Downloads models on first run
-    ├── download_models.sh       # Downloads 9 large models (~13GB)
-    └── models/                  # Model storage (host-mounted, ~13GB)
-```
 
-## API Endpoint Specification
+### Usage
 
-### POST /auto-caption
+**Automatic (Recommended):**
+1. Tag scene with foreign language (e.g., "Spanish Language")
+2. Load scene in Stash
+3. Plugin automatically generates captions
+4. Monitor progress in Jobs queue
+5. Caption loads in player when complete
 
-**Request Body:**
+**Manual (Single Scene):**
+1. Scene page > Tasks > "Generate Caption for Scene"
+2. Monitor Jobs queue
+3. Refresh to see caption
+
+**Batch Processing:**
+1. Stash UI > Tasks > "Generate Captions for All Foreign Language Scenes"
+2. Plugin finds all scenes with foreign language tags
+3. Filters out scenes that already have captions
+4. Queues individual caption generation tasks
+5. Monitor progress in Jobs queue (one job per scene)
+
+---
+
+## Architecture
+
+### System Components
+
+**Docker Compose Stack:**
+1. **whisper-server** (Python/Flask) - Whisper AI transcription on port 2800
+2. **web-service** (FastAPI) - Async task management on port 8000
+3. **libretranslate** - Translation service on port 5000
+
+**Stash Plugin:**
+1. **Go RPC** (`gorpc/`) - Backend: HTTP client, GraphQL, tag management, metadata scans
+2. **JavaScript** (`js/`) - UI only: language detection, job trigger, player updates
+
+### Key Design Decisions
+
+See detailed ADRs in [`docs/adr/`](docs/adr/):
+- [ADR 001: Whisper Over Vosk](docs/adr/001-whisper-over-vosk.md)
+- [ADR 002: Dual Plugin Architecture](docs/adr/002-dual-plugin-architecture.md)
+- [ADR 003: Streaming Progress Tracking](docs/adr/003-streaming-progress-tracking.md)
+- [ADR 004: GraphQL Client Patterns](docs/adr/004-graphql-client-patterns.md)
+- [ADR 005: Batch Caption Generation](docs/adr/005-batch-caption-generation.md)
+
+### Core Principles
+
+1. **Stateless JavaScript**: No tag management or metadata scans - purely UI
+2. **Stateful Go RPC**: All persistence operations (captions, tags, scans)
+3. **No Duplication**: Functions moved from JS to Go, never copied
+4. **Streaming Progress**: Real-time updates via JSON-lines format
+5. **Type Safety**: GraphQL queries use proper `graphql.ID` types
+
+---
+
+## API Reference
+
+### Web Service Endpoints
+
+#### POST /auto-caption/start
+Start caption generation task.
+
+**Request:**
 ```json
 {
-  "video_path": "/data/movie.mp4",
-  "language": "es",
-  "translate_to": "en"  // optional
+  "video_path": "/data/video.mp4",
+  "language": "es",  // Optional: omit for auto-detection
+  "translate_to": "en"
 }
 ```
 
 **Response:**
 ```json
 {
-  "srt_content": "1\n00:00:00,000 --> 00:00:02,000\nHola mundo\n\n...",
-  "file_path": "/data/movie.es.srt",
-  "cached": false,
-  "translation_service": "deepl"  // or "libretranslate" or null
+  "task_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "status": "queued"
 }
 ```
 
-## Supported Languages
+#### GET /auto-caption/status/{task_id}
+Poll task status.
 
-### Vosk Models (Large/Server versions)
-- **English** - vosk-model-en-us-0.22 (1.8GB, 5.69% WER)
-- **Spanish** - vosk-model-es-0.42 (1.4GB, 7.50% WER)
-- **Japanese** - vosk-model-ja-0.22 (1GB, 8.40% char error)
-- **Portuguese** - vosk-model-pt-fb-v0.1.1 (1.6GB)
-- **Russian** - vosk-model-ru-0.42 (1.8GB, 4.5% WER)
-- **French** - vosk-model-fr-0.22 (1.4GB, 14.72% WER)
-- **German** - vosk-model-de-0.21 (1.9GB)
-- **Dutch** - vosk-model-nl-spraakherkenning-0.6 (860MB, 20.40% WER)
-- **Italian** - vosk-model-it-0.22 (1.2GB, 8.10% WER)
+**Response:**
+```json
+{
+  "task_id": "...",
+  "status": "running",
+  "progress": 0.45,
+  "stage": "transcribing",
+  "result": null
+}
+```
 
-**Total model storage: ~13GB**
+**Status Values:** `queued`, `running`, `completed`, `failed`
+**Stage Values:** `extracting_audio`, `transcribing`, `translating`, `saving`
 
-## Subtitle Generation Workflow
+### Whisper Server Endpoints
 
-### Step-by-step Process
+#### POST /transcribe/srt?task_id={id}
+Transcribe audio with streaming progress.
 
-**a. Validate request**
-- Check video file exists at video_path
-- Validate language is supported
-- Validate translate_to language (if provided)
+**Query Params:**
+- `task_id` (optional): Enable streaming mode
+- `language` (required): Source language code
+- `task`: `transcribe` or `translate` (to English)
 
-**b. Check for existing subtitle**
-- Pattern: `^{filename}.*\.{lang}(?:lish)?\..*\.srt$`
-- Examples: `movie.en.srt`, `movie.english.srt`, `movie.es.forced.srt`
-- If found AND no translation needed: return cached file
-- If found AND translation needed: check for translated version
+**Streaming Response (JSON-lines):**
+```json
+{"type": "progress", "progress": 0.25, "timestamp": 17.5, "duration": 70.0}
+{"type": "complete", "srt_content": "...", "language": "en", ...}
+```
 
-**c. Extract audio via FFmpeg**
-- Command: `ffmpeg -i {video_path} -ar 16000 -ac 1 -f wav {temp_audio}.wav`
-- Downsample to 16kHz mono WAV (Vosk requirement)
-- Use temporary directory for intermediate files
-
-**d. Submit audio to vosk-server**
-- HTTP POST to `http://vosk-server:2700/recognize`
-- Stream audio file to Vosk endpoint
-- Specify language model via API
-
-**e. Parse Vosk JSON response**
-- Format: `{"result": [{"conf": 0.96, "end": 1.02, "start": 0.0, "word": "hello"}]}`
-- Extract timing and text segments
-- Group words into subtitle cues (max ~42 chars per line)
-
-**f. Convert JSON → SRT format**
-- SRT format:
-  ```
-  1
-  00:00:00,000 --> 00:00:02,000
-  First subtitle line
-
-  2
-  00:00:02,000 --> 00:00:05,500
-  Second subtitle line
-  ```
-- Proper timing format: HH:MM:SS,mmm
-- Sequential numbering
-- Blank line between cues
-
-**g. (Optional) Translate**
-- If `translate_to` parameter provided:
-  1. Try DeepL API first
-  2. Track character usage for quota management
-  3. If DeepL fails/quota exceeded: fallback to LibreTranslate
-  4. Preserve timestamps, only translate text content
-  5. Return which service was used in response
-
-**h. Save .srt file**
-- Naming convention: `{video_basename}.{lang}.srt`
-- Save to same directory as video file
-- If translation: `{video_basename}.{translate_to}.srt`
-
-**i. Return response**
-- JSON with SRT content, file path, cached flag, translation service used
-
-## Implementation Steps
-
-### 1. Core Infrastructure
-- [ ] Create docker-compose.yml with 3 services
-- [ ] Configure volume mount: Unraid share → /data
-- [ ] Create .env.example for DeepL API key, host paths
-- [ ] Set up health checks for all services
-- [ ] Configure internal Docker network
-
-### 2. Vosk Server Container
-- [ ] Create Dockerfile based on alphacep/vosk-server
-- [ ] Write download_models.sh script for 8 large models
-- [ ] Configure multi-language model loading
-- [ ] Set up model directory structure
-- [ ] Expose port 2700 (internal only)
-
-### 3. LibreTranslate Container
-- [ ] Use official libretranslate/libretranslate image
-- [ ] Configure language pairs
-- [ ] Set up persistent model storage
-- [ ] Expose port 5000 (internal only)
-
-### 4. FastAPI Web Service - Core Setup
-- [ ] Create Dockerfile with Python 3.11+
-- [ ] Install dependencies: fastapi, uvicorn, ffmpeg-python, requests, deepl
-- [ ] Create requirements.txt
-- [ ] Set up FastAPI app with CORS for video.js client
-- [ ] Configure logging
-
-### 5. FastAPI Web Service - API Layer
-- [ ] Define Pydantic models for request/response (models.py)
-- [ ] Implement POST /auto-caption endpoint (main.py)
-- [ ] Add request validation
-- [ ] Implement error handling and HTTP status codes
-- [ ] Add health check endpoint: GET /health
-
-### 6. Subtitle Workflow - File Operations (utils.py)
-- [ ] Implement video file existence check
-- [ ] Implement existing SRT file search with regex
-- [ ] Implement SRT file saving logic
-- [ ] Add file path sanitization
-
-### 7. Subtitle Workflow - Transcription (transcription.py)
-- [ ] Implement FFmpeg audio extraction
-- [ ] Create Vosk server client (HTTP requests)
-- [ ] Parse Vosk JSON response
-- [ ] Group words into subtitle cues
-
-### 8. Subtitle Workflow - SRT Generation (subtitle.py)
-- [ ] Implement JSON to SRT converter
-- [ ] Format timestamps correctly
-- [ ] Handle line wrapping (max chars per line)
-- [ ] Parse existing SRT files (for caching)
-
-### 9. Translation Layer (translation.py)
-- [ ] Implement DeepL API client
-- [ ] Add character usage tracking/logging
-- [ ] Implement LibreTranslate client
-- [ ] Create fallback logic with error handling
-- [ ] Translate SRT content while preserving timing
-
-### 10. Testing & Documentation
-- [ ] Create README.md with:
-  - Setup instructions
-  - Unraid Docker deployment guide
-  - API documentation with examples
-  - Environment variable reference
-- [ ] Test each language model
-- [ ] Test translation workflow (DeepL + fallback)
-- [ ] Test SRT caching logic
-- [ ] Test error scenarios (missing files, quota exceeded, etc.)
-
-## Technologies & Dependencies
-
-### Web Service (Python)
-- **fastapi** - Web framework with async support
-- **uvicorn** - ASGI server
-- **pydantic** - Request/response validation
-- **deepl** - DeepL API client
-- **requests** - HTTP client for Vosk/LibreTranslate
-- **ffmpeg-python** - FFmpeg wrapper
-
-### System Dependencies
-- **FFmpeg** - Audio extraction and conversion
-
-### Docker Services
-- **Vosk Server** - Speech-to-text engine
-- **LibreTranslate** - Self-hosted translation service
+---
 
 ## Configuration
 
 ### Environment Variables (.env)
+
 ```bash
-# DeepL API
-DEEPL_API_KEY=your_free_api_key_here
+# Services
+WHISPER_SERVER_URL=http://whisper-server:2800
+WHISPER_MODEL=large-v3
+LIBRETRANSLATE_URL=http://libretranslate:5000
 
-# Volume Mounts (for docker-compose)
-UNRAID_MEDIA_PATH=/mnt/user/movies
+# Paths
+MEDIA_PATH=/path/to/media
 
-# Service Ports
+# Ports
 WEB_SERVICE_PORT=8000
-VOSK_SERVER_PORT=2700  # internal only
-LIBRETRANSLATE_PORT=5000  # internal only
-
-# Logging
-LOG_LEVEL=INFO
+WHISPER_SERVER_PORT=2800
+LIBRETRANSLATE_PORT=5000
 ```
 
-## Deployment on Unraid
+### Plugin Settings (Stash UI)
 
-1. Clone repository to Unraid appdata
-2. Copy .env.example to .env and configure
-3. Run `docker-compose up -d` to start all services
-4. Access API at `http://{unraid-ip}:8000`
-5. Monitor logs: `docker-compose logs -f web-service`
+**Settings > Plugins > Stash Auto Caption:**
+- `serviceUrl`: Auto-Caption Service URL (leave empty for auto-detection)
 
-## Future Enhancements (Not in Initial Scope)
+Default: `http://auto-caption-web:8000`
 
-- Automatic language detection (instead of requiring language parameter)
-- Support for more subtitle formats (VTT, ASS, SSA)
-- Batch processing endpoint for multiple videos
-- WebSocket support for real-time progress updates
-- Model caching/preloading optimization
-- GPU acceleration for Vosk (if available)
+---
+
+## Supported Languages
+
+Whisper supports 99+ languages with automatic detection:
+
+**Primary:** English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Chinese, Korean, Dutch, Polish, Turkish, Swedish, Arabic, Hebrew, Hindi, Thai, Vietnamese
+
+**Translation:**
+- Whisper: Any language → English (during transcription)
+- LibreTranslate: English → other languages
+
+---
+
+## Development
+
+### Building Go RPC Binary
+
+```bash
+cd stash-auto-caption/gorpc
+GOOS=linux GOARCH=amd64 go build -o stash-auto-caption-rpc main.go
+```
+
+**Target:** Linux x86-64 (for Unraid/Docker)
+
+### Project Structure
+
+```
+auto-caption/
+├── docker-compose.yml
+├── .env
+├── whisper-server/          # Whisper AI service
+│   └── whisper_http_server.py
+├── web-service/             # FastAPI service
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── transcription.py
+│   │   └── task_manager.py
+│   └── requirements.txt
+├── stash-auto-caption/      # Stash plugin
+│   ├── gorpc/
+│   │   ├── main.go
+│   │   ├── go.mod
+│   │   └── stash-auto-caption-rpc
+│   ├── js/
+│   │   ├── stashFunctions.js
+│   │   └── stash-auto-caption.js
+│   └── stash-auto-caption.yml
+└── docs/
+    └── adr/                 # Architecture Decision Records
+```
+
+### GraphQL Patterns
+
+When adding GraphQL queries/mutations:
+
+1. Check schema: `stash/graphql/schema/schema.graphql`
+2. Use `graphql.ID` for ID fields, not `graphql.String`
+3. Create input structs with `json` tags
+4. Match return types exactly
+5. See [ADR 004](docs/adr/004-graphql-client-patterns.md) for patterns
+
+**Example:**
+```go
+type SceneUpdateInput struct {
+    ID     graphql.ID   `json:"id"`
+    TagIds []graphql.ID `json:"tag_ids"`
+}
+
+var mutation struct {
+    SceneUpdate struct {
+        ID graphql.ID
+    } `graphql:"sceneUpdate(input: $input)"`
+}
+
+input := SceneUpdateInput{
+    ID:     graphql.ID(sceneID),
+    TagIds: tagIDs,
+}
+
+variables := map[string]interface{}{
+    "input": input,
+}
+
+err := client.Mutate(ctx, &mutation, variables)
+```
+
+---
+
+## Troubleshooting
+
+### Plugin Not Appearing
+
+```bash
+# Check binary format
+file stash-auto-caption/gorpc/stash-auto-caption-rpc
+# Expected: ELF 64-bit LSB executable, x86-64
+
+# Make executable
+chmod +x stash-auto-caption/gorpc/stash-auto-caption-rpc
+
+# Reload plugins
+# Stash UI: Settings > Plugins > Reload Plugins
+```
+
+### Caption Generation Fails
+
+```bash
+# Check web service logs
+docker-compose logs web-service
+
+# Check whisper server logs
+docker-compose logs whisper-server
+
+# Test web service
+curl -X POST http://localhost:8000/auto-caption/start \
+  -H "Content-Type: application/json" \
+  -d '{"video_path":"/data/video.mp4","language":"es","translate_to":"en"}'
+```
+
+### Progress Not Updating
+
+Check that streaming is enabled (requires `task_id` parameter).
+
+### Caption Not Appearing
+
+1. Wait for metadata scan job to complete
+2. Manually refresh: Scene page > Edit > Scan
+3. Caption must be in same directory as video
+4. Filename format: `video.en.srt`
+
+---
+
+## Key Lessons
+
+### Generator Pitfall
+```python
+# ❌ WRONG - Consumes entire generator
+segments_list = list(segments)
+
+# ✅ CORRECT - Process during iteration
+for segment in segments:
+    process(segment)
+    yield_progress()
+```
+
+### GraphQL Types
+```go
+// ❌ WRONG - String for IDs
+ID graphql.String
+
+// ✅ CORRECT - Use graphql.ID
+ID graphql.ID
+```
+
+### Named Type Reflection (Critical)
+```go
+// ❌ WRONG - Anonymous map, library can't reflect type
+variables := map[string]interface{}{
+    "filter": map[string]interface{}{"per_page": 10},
+}
+// Generates: query ($filter:!) {  // MISSING TYPE!
+
+// ✅ CORRECT - Named struct, library can reflect type
+type FindFilterType struct {
+    PerPage *graphql.Int `graphql:"per_page" json:"per_page"`
+}
+filterInput := &FindFilterType{PerPage: &graphql.Int(10)}
+variables := map[string]interface{}{"filter": filterInput}
+// Generates: query ($filter: FindFilterType!) {  // CORRECT!
+```
+**Issue:** The hasura/go-graphql-client uses Go type reflection to generate GraphQL type declarations. Anonymous types (plain maps/slices) have no type name, so the library generates invalid queries.
+
+**Solution:** Always use named types (structs or type aliases) and pass pointers to them. See [ADR 004 Pattern 6](docs/adr/004-graphql-client-patterns.md#pattern-6-use-named-types-for-type-reflection-critical) for complete details.
+
+### VAD Filter and Timestamp Accuracy
+```python
+# ❌ WRONG - VAD filter causes timestamp misalignment
+whisper_model.transcribe(
+    audio_path,
+    vad_filter=True,  # Cuts silence, breaks timing
+    word_timestamps=False
+)
+
+# ✅ CORRECT - Preserve accurate timestamps
+whisper_model.transcribe(
+    audio_path,
+    vad_filter=False,  # Keep original timeline
+    word_timestamps=True  # Better accuracy
+)
+```
+**Issue:** VAD filter removes silence periods, causing caption timestamps to index dialog over gaps in the audio, making captions appear during silent portions of the video.
+
+**Solution:** Disable VAD filter to preserve the original audio timeline. Enable `word_timestamps` for improved timing precision.
+
+### No Duplication
+Functions must be **moved** from JavaScript to Go, never copied. Single source of truth.
+
+---
+
+## Future Enhancements
+
+- [ ] GPU acceleration (CUDA support)
+- [ ] Batch processing
+- [ ] Web UI for monitoring
+- [ ] Speaker diarization
+- [ ] WebSocket progress updates
+- [ ] Multi-language subtitle generation
+- [ ] Integration with other transcription services
+
+---
+
+## References
+
+- [Stash Plugin Documentation](https://docs.stashapp.cc/in-app-manual/plugins/)
+- [Stash RPC Example](https://github.com/stashapp/stash/blob/master/pkg/plugin/examples/gorpc/main.go)
+- [Whisper Model Card](https://github.com/openai/whisper/blob/main/model-card.md)
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- [hasura/go-graphql-client](https://github.com/hasura/go-graphql-client)
+
+---
+
+**Last Updated:** 2025-10-31
+**Version:** 2.0.1 (whisper-rpc branch)
+**Status:** Production Ready

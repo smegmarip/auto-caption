@@ -1,512 +1,490 @@
 # Auto-Caption Service
 
-Dockerized Python service for generating subtitles from local video files using Vosk speech recognition and optional translation with DeepL/LibreTranslate.
+**Branch:** `whisper-rpc` (Whisper AI + Stash RPC integration)
+**Status:** Production Ready
+
+Dockerized subtitle generation service using Whisper AI for transcription with integrated Stash plugin support via Go RPC backend + JavaScript UI.
 
 ## Features
 
-- **Automatic Speech Recognition**: Transcribe video files using Vosk with high-accuracy large models
-- **Multi-language Support**: 9 languages supported (EN, ES, JA, PT, RU, FR, DE, NL, IT)
-- **Smart Caching**: Checks for existing subtitle files before generating new ones
-- **Translation**: Optional translation with DeepL (primary) and LibreTranslate (fallback)
-- **RESTful API**: FastAPI-based service with JSON responses
-- **Docker Compose**: Easy deployment with 3-service architecture
+- **Whisper AI Transcription**: High-accuracy speech-to-text with 99+ language support
+- **Real-time Progress Tracking**: Streaming progress updates during transcription
+- **Built-in English Translation**: Whisper can translate any language → English
+- **Stash Plugin Integration**: Dual-architecture (Go RPC backend + Stateless JavaScript UI)
+- **Smart Caching**: Checks for existing subtitle files before generating
+- **Async Task Management**: Non-blocking job queue with progress reporting
+- **RESTful API**: FastAPI-based service with async endpoints
+- **Toast Notifications**: Real-time status updates in Stash UI
+- **Player Progress Indicator**: Caption icon with real-time percentage display (0-100%)
+- **Automatic Tag Management**: Go RPC handles "Subtitled" tag updates
+- **Flexible URL Resolution**: Supports IP addresses, hostnames, container names, and localhost
 
 ## Architecture
 
+### Docker Services
+
 ```
-┌─────────────────┐
-│  video.js       │
-│  or JavaScript  │
-│  Client         │
-└────────┬────────┘
-         │ HTTP POST
-         ▼
-┌─────────────────┐
-│  web-service    │◄──────┐
-│  (FastAPI)      │       │
-│  Port 8000      │       │
-└────┬───────┬────┘       │
-     │       │            │
-     │       └────────────┤
-     │                    │
-     ▼                    ▼
-┌─────────────┐    ┌──────────────┐
-│ vosk-server │    │libretranslate│
-│ (internal)  │    │  (internal)  │
-└─────────────┘    └──────────────┘
+┌────────────────────────────────────────────────────────┐
+│                    Stash Instance                      │
+└────────────────────┬───────────────────────────────────┘
+                     │
+                     │ triggers RPC task
+                     ▼
+         ┌────────────────────────┐
+         │  Go RPC Plugin         │
+         │  (stash-auto-caption)  │
+         │  - HTTP Client         │
+         │  - Task Polling        │
+         │  - GraphQL Mutations   │
+         │  - Tag Management      │
+         │  - URL Resolution      │
+         └──────────┬─────────────┘
+                    │
+                    │ HTTP POST/GET
+                    ▼
+         ┌────────────────────────┐
+         │  web-service (FastAPI) │
+         │  Port 8000             │
+         │  - Async Task Manager  │
+         │  - Progress Tracking   │
+         └──────┬───────┬─────────┘
+                │       │
+                │       └─────────────┐
+                ▼                     ▼
+    ┌────────────────────┐  ┌──────────────────┐
+    │  whisper-server    │  │  libretranslate  │
+    │  (Flask)           │  │  (Translation)   │
+    │  Port 2800         │  │  Port 5000       │
+    │  - Whisper AI      │  │  (fallback)      │
+    │  - Streaming       │  └──────────────────┘
+    └────────────────────┘
+
+         ┌────────────────────────┐
+         │  JavaScript Plugin     │
+         │  (Stash UI - STATELESS)│
+         │  - Language Detection  │
+         │  - Job Trigger         │
+         │  - Player Integration  │
+         │  - Toast Notifications │
+         │  - Progress Indicator  │
+         └────────────────────────┘
 ```
-
-## Supported Languages
-
-| Language   | Code | Model Size | Accuracy (WER) |
-|------------|------|------------|----------------|
-| English    | en   | 1.8GB      | 5.69%          |
-| Spanish    | es   | 1.4GB      | 7.50%          |
-| Japanese   | ja   | 1GB        | 8.40%          |
-| Portuguese | pt   | 1.6GB      | ~10%           |
-| Russian    | ru   | 1.8GB      | 4.5%           |
-| French     | fr   | 1.4GB      | 14.72%         |
-| German     | de   | 1.9GB      | ~13%           |
-| Dutch      | nl   | 860MB      | 20.40%         |
-| Italian    | it   | 1.2GB      | 8.10%          |
-
-**Total model storage required: ~13GB**
 
 ## Quick Start
 
 ### Prerequisites
 
 - Docker and Docker Compose
-- Unraid server with media share (or any Docker host)
-- DeepL API key (free tier: 500k chars/month) - [Sign up here](https://www.deepl.com/pro-api)
+- Docker host (Linux, Windows, macOS, or NAS)
+- For Stash integration: Stash instance with plugin support
 
 ### Installation
 
-1. **Clone or copy this repository to your system**
+1. **Clone repository**:
 
-2. **Create `.env` file**:
    ```bash
-   cp .env.example .env
+   git clone <repo-url> auto-caption
+   cd auto-caption
+   git checkout whisper-rpc
    ```
 
-3. **Edit `.env` with your configuration**:
+2. **Configure environment**:
+
    ```bash
-   # DeepL API key (get free key at https://www.deepl.com/pro-api)
-   DEEPL_API_KEY=your_api_key_here
-
-   # Path to your Unraid media directory (mounted to /data in container)
-   UNRAID_MEDIA_PATH=/mnt/user/movies
-
-   # Web service port (using 9080 to avoid common port conflicts)
-   WEB_SERVICE_PORT=9080
-
-   # Docker network (use existing network for inter-container communication)
-   DOCKER_NETWORK=auto-caption-network
-
-   # Logging level
-   LOG_LEVEL=INFO
-   ```
-
-4. **Create Docker network** (if using default network name):
-   ```bash
-   docker network create auto-caption-network
-   ```
-
-   **Or** use an existing network by setting `DOCKER_NETWORK` in `.env` to your network name.
-
-5. **Build and start services**:
-   ```bash
-   docker-compose up -d
-   ```
-
-   **Important Notes**:
-   - **First start**: Vosk server will download models (~13GB) to `vosk-server/models/`. This takes 20-40 minutes.
-   - Health check allows 1 hour for first-time model download
-   - Watch download progress: `docker-compose logs -f vosk-server`
-   - **Subsequent starts**: Instant (models already downloaded)
-
-6. **Monitor first-time startup** (recommended):
-   ```bash
-   # Watch vosk-server download models
-   docker-compose logs -f vosk-server
-
-   # Once you see "Starting Vosk HTTP server on port 2700...", models are ready
-   ```
-
-7. **Check service health**:
-   ```bash
-   curl http://localhost:9080/health
-   ```
-
-## API Usage
-
-### Endpoint: POST /auto-caption
-
-Generate subtitles from a video file.
-
-**Request Body**:
-```json
-{
-  "video_path": "/data/movies/example.mp4",
-  "language": "en",
-  "translate_to": "es"
-}
-```
-
-**Parameters**:
-- `video_path` (required): Path to video file (must be within `/data`)
-- `language` (required): Source language code for transcription
-- `translate_to` (optional): Target language code for translation
-
-**Response**:
-```json
-{
-  "srt_content": "1\n00:00:00,000 --> 00:00:02,000\nHello world\n\n...",
-  "file_path": "/data/movies/example.en.srt",
-  "cached": false,
-  "translation_service": "deepl"
-}
-```
-
-**Response Fields**:
-- `srt_content`: Complete SRT subtitle content
-- `file_path`: Path where SRT file was saved
-- `cached`: Whether subtitle was retrieved from existing file
-- `translation_service`: Translation service used (`deepl`, `libretranslate`, or `null`)
-
-### Examples
-
-#### Basic Transcription (No Translation)
-```bash
-curl -X POST http://localhost:9080/auto-caption \
-  -H "Content-Type: application/json" \
-  -d '{
-    "video_path": "/data/movies/movie.mp4",
-    "language": "en"
-  }'
-```
-
-#### Transcription with Translation
-```bash
-curl -X POST http://localhost:9080/auto-caption \
-  -H "Content-Type: application/json" \
-  -d '{
-    "video_path": "/data/movies/movie.mp4",
-    "language": "es",
-    "translate_to": "en"
-  }'
-```
-
-#### Using from JavaScript/video.js
-```javascript
-fetch('http://localhost:9080/auto-caption', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    video_path: '/data/movies/movie.mp4',
-    language: 'en',
-    translate_to: 'es'
-  })
-})
-.then(response => response.json())
-.then(data => {
-  console.log('SRT file saved:', data.file_path);
-  // Use data.srt_content with video.js
-});
-```
-
-### Health Check
-
-```bash
-curl http://localhost:9080/health
-```
-
-Response:
-```json
-{
-  "status": "healthy",
-  "vosk_available": true,
-  "libretranslate_available": true
-}
-```
-
-## Subtitle Caching
-
-The service automatically checks for existing subtitle files before generating new ones. It searches for files matching:
-
-**Pattern**: `{video_name}.*\.{lang}(?:lish)?\..*\.srt$`
-
-**Examples**:
-- `movie.en.srt`
-- `movie.english.srt`
-- `movie.es.forced.srt`
-- `movie.pt.sdh.srt`
-
-If found, the cached file is returned immediately (unless translation is requested to a different language).
-
-## Translation Services
-
-### DeepL (Primary)
-
-- **Quality**: Superior translation quality
-- **Free Tier**: 500,000 characters/month
-- **Calculation**: ~490 minutes of video (~8 hours)
-- **Equivalent**: ~4 full movies or ~16 TV episodes per month
-
-Get your free API key: https://www.deepl.com/pro-api
-
-### LibreTranslate (Fallback)
-
-- **Quality**: Good quality, self-hosted
-- **Limits**: Unlimited (runs in Docker)
-- **Usage**: Automatically used when DeepL quota exhausted or fails
-
-## Inter-Container Communication
-
-The auto-caption service can be accessed by other Docker containers on the same network using the container name.
-
-### Using an Existing Network
-
-1. **Set the network in `.env`**:
-   ```bash
-   DOCKER_NETWORK=my-existing-network
-   ```
-
-2. **Ensure the network exists**:
-   ```bash
-   docker network create my-existing-network
-   ```
-
-3. **Connect other containers to the same network**:
-   ```bash
-   # For existing containers
-   docker network connect my-existing-network my-video-container
-
-   # Or in docker-compose.yml for other services
-   services:
-     my-video-app:
-       networks:
-         - my-existing-network
-
-   networks:
-     my-existing-network:
-       external: true
-   ```
-
-4. **Access the API from other containers**:
-   ```javascript
-   // From video.js or other container on same network
-   fetch('http://auto-caption-web:8000/auto-caption', {
-     method: 'POST',
-     headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({
-       video_path: '/data/movie.mp4',
-       language: 'en'
-     })
-   })
-   ```
-
-**Note**: Container name is `auto-caption-web`, internal port is `8000`.
-
-## Unraid Deployment
-
-### Option 1: Docker Compose (Recommended)
-
-1. **Install Compose Manager plugin** (if not installed):
-   - Go to Apps → Search "Compose Manager"
-   - Install the plugin
-
-2. **Copy project to Unraid**:
-   ```bash
-   # From your Mac
-   scp -r /Users/x/dev/resources/repo/auto-caption root@unraid-ip:/mnt/user/appdata/
-   ```
-
-3. **Configure `.env`**:
-   ```bash
-   cd /mnt/user/appdata/auto-caption
    cp .env.example .env
    nano .env
    ```
 
-4. **Start with Compose Manager**:
-   - Open Compose Manager UI
-   - Add Stack → Browse to `/mnt/user/appdata/auto-caption`
-   - Click "Compose Up"
+   Update:
 
-### Option 2: Docker CLI
+   ```bash
+   # Volume mount to your media directory
+   MEDIA_PATH=/path/to/your/media
+
+   # Service ports (defaults are fine)
+   WEB_SERVICE_PORT=8000
+   WHISPER_SERVER_PORT=2800
+   LIBRETRANSLATE_PORT=5000
+
+   # Whisper model (large-v3 for best accuracy)
+   WHISPER_MODEL=large-v3
+   ```
+
+3. **Start services**:
+
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Check health**:
+   ```bash
+   curl http://localhost:8000/health
+   curl http://localhost:2800/
+   ```
+
+## Stash Plugin Installation
+
+### 1. Deploy Plugin Files
 
 ```bash
-# SSH to Unraid
-ssh root@unraid-ip
+# Copy plugin to Stash plugins directory
+cp -r stash-auto-caption <STASH_PLUGINS_DIR>/
 
-# Navigate to project
-cd /mnt/user/appdata/auto-caption
+# Make binary executable
+chmod +x <STASH_PLUGINS_DIR>/stash-auto-caption/gorpc/stash-auto-caption-rpc
 
-# Start services (first run downloads models to vosk-server/models/)
-docker-compose up -d
-
-# View logs (watch model download progress on first run)
-docker-compose logs -f vosk-server
-
-# View web service logs
-docker-compose logs -f web-service
-
-# Stop services
-docker-compose down
+# Verify binary
+file <STASH_PLUGINS_DIR>/stash-auto-caption/gorpc/stash-auto-caption-rpc
+# Expected: ELF 64-bit LSB executable, x86-64
 ```
 
-### Port Forwarding
+### 2. Reload Plugins
 
-If accessing from other devices on your LAN, ensure port 8000 is accessible:
-- Go to Settings → Network Settings
-- Check firewall rules if connections fail
+In Stash UI:
+
+1. Go to **Settings > Plugins**
+2. Click **Reload Plugins**
+3. Verify "Stash Auto Caption" appears in plugin list
+
+### 3. Configure Plugin
+
+1. Navigate to **Settings > Plugins > Stash Auto Caption**
+2. Configure **Auto-Caption Service URL** (optional):
+   - Leave empty for automatic detection (recommended)
+   - Or specify custom URL: `http://auto-caption-web:8000`
+   - Supports: IP addresses, hostnames, container names, localhost
+3. Create required tags:
+   - Tag: **Subtitled** (added automatically by plugin after caption generation)
+   - Tag: **Foreign Language** (parent tag)
+   - Child tags: **Spanish Language**, **Japanese Language**, **French Language**, etc.
+
+### 4. Usage
+
+**Automatic (Recommended):**
+
+1. Tag scene with language (e.g., "Spanish Language")
+2. Navigate to scene page
+3. Plugin auto-detects foreign language and triggers caption generation
+4. Toast notification: "Generating captions for..."
+5. Player shows caption icon with live progress percentage (0-100%)
+6. Monitor progress in **Jobs** queue
+7. Caption loads automatically when complete
+8. "Subtitled" tag added automatically by Go RPC plugin
+
+**Manual:**
+
+1. Navigate to scene
+2. Click **Tasks** button
+3. Select **Generate Caption for Scene**
+4. Monitor in Jobs queue
+
+## API Endpoints
+
+### POST /auto-caption/start
+
+Start async caption generation.
+
+**Request:**
+
+```json
+{
+  "video_path": "/data/movies/video.mp4",
+  "language": "es",
+  "translate_to": "en"
+}
+```
+
+**Response:**
+
+```json
+{
+  "task_id": "abc123",
+  "status": "queued"
+}
+```
+
+### GET /auto-caption/status/{task_id}
+
+Poll task progress.
+
+**Response:**
+
+```json
+{
+  "task_id": "abc123",
+  "status": "running",
+  "progress": 0.45,
+  "stage": "transcribing",
+  "error": null,
+  "result": null
+}
+```
+
+### GET /health
+
+Check service health.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "whisper_available": true,
+  "libretranslate_available": true
+}
+```
+
+## Supported Languages
+
+Whisper supports **99+ languages** with automatic detection:
+
+**Common Languages:**
+
+- English (en), Spanish (es), French (fr), German (de)
+- Italian (it), Portuguese (pt), Russian (ru), Dutch (nl)
+- Japanese (ja), Chinese (zh), Korean (ko), Arabic (ar)
+- And 80+ more...
+
+**Translation:**
+
+- Whisper: Any language → English (during transcription)
+- LibreTranslate: English → other languages (post-processing)
+
+## Configuration
+
+### Environment Variables
+
+| Variable             | Default                      | Description             |
+| -------------------- | ---------------------------- | ----------------------- |
+| `WHISPER_SERVER_URL` | `http://whisper-server:2800` | Whisper server endpoint |
+| `WHISPER_MODEL`      | `large-v3`                   | Whisper model size      |
+| `LIBRETRANSLATE_URL` | `http://libretranslate:5000` | Translation service     |
+| `MEDIA_PATH`         | `/path/to/media`             | Host media directory    |
+| `WEB_SERVICE_PORT`   | `8000`                       | Web service port        |
+| `LOG_LEVEL`          | `INFO`                       | Logging verbosity       |
+
+### Plugin Settings
+
+In Stash UI (**Settings > Plugins > Stash Auto Caption**):
+
+- **service_url**: URL of web service (default: `http://auto-caption-web:8000`)
 
 ## Project Structure
 
 ```
 auto-caption/
-├── docker-compose.yml          # Orchestrates 3 services
-├── .env.example                # Environment configuration template
-├── CLAUDE.md                   # Implementation plan
-├── README.md                   # This file
+├── docker-compose.yml              # Orchestrates 3 services
+├── .env.example                    # Environment template
+├── CLAUDE.md                       # Complete implementation docs
+├── README.md                       # This file
+├── docs/
+│   └── adr/                        # Architecture Decision Records
 │
-├── vosk-server/
-│   ├── Dockerfile              # Vosk server container
-│   ├── entrypoint.sh           # Downloads models on first run
-│   ├── download_models.sh      # Downloads 9 language models
-│   └── models/                 # Model storage (host-mounted, ~13GB)
+├── whisper-server/
+│   ├── Dockerfile                  # Whisper AI container
+│   ├── whisper_http_server.py     # Flask server with streaming
+│   └── models/                     # Whisper models (auto-downloaded)
 │
-└── web-service/
-    ├── Dockerfile              # FastAPI web service container
-    ├── requirements.txt        # Python dependencies
-    └── app/
-        ├── main.py             # FastAPI endpoints
-        ├── models.py           # Request/response schemas
-        ├── subtitle.py         # SRT generation/parsing
-        ├── transcription.py    # Vosk client + FFmpeg
-        ├── translation.py      # DeepL + LibreTranslate
-        └── utils.py            # File operations
+├── web-service/
+│   ├── Dockerfile                  # FastAPI container
+│   ├── requirements.txt
+│   └── app/
+│       ├── main.py                 # API endpoints + task manager
+│       ├── models.py               # Pydantic schemas
+│       ├── transcription.py        # Whisper client
+│       ├── translation.py          # LibreTranslate client
+│       ├── task_manager.py         # Async task tracking
+│       └── utils.py                # File operations
+│
+└── stash-auto-caption/
+    ├── stash-auto-caption.yml      # Plugin config
+    ├── js/
+    │   ├── stash-auto-caption.js   # UI plugin (language detection, player)
+    │   └── stashFunctions.js       # Utility functions
+    └── gorpc/
+        ├── main.go                 # Go RPC plugin
+        ├── go.mod                  # Dependencies
+        └── stash-auto-caption-rpc  # Compiled binary (Linux x86-64)
 ```
 
 ## Workflow
 
-The service follows this workflow for each caption request:
-
-1. **Validate Request** - Check video file exists and parameters are valid
-2. **Check Cache** - Search for existing SRT file in target language
-3. **Extract Audio** - Use FFmpeg to extract and downsample audio to 16kHz mono WAV
-4. **Transcribe** - Send audio to Vosk server for speech recognition
-5. **Convert to SRT** - Transform Vosk JSON output to SRT format with proper timing
-6. **Translate** (optional) - Translate subtitles using DeepL → LibreTranslate fallback
-7. **Save File** - Write SRT file to video directory with language suffix
-8. **Return Response** - Send JSON response with SRT content and metadata
-
-## Troubleshooting
-
-### Service won't start
-
-Check logs:
-```bash
-docker-compose logs vosk-server
-docker-compose logs web-service
-docker-compose logs libretranslate
-```
-
-### Vosk server not ready
-
-Vosk server needs time to load models. Wait 1-2 minutes after startup, then check:
-```bash
-curl http://localhost:2700/
-```
-
-### Video file not found
-
-Ensure:
-1. Video path in request starts with `/data`
-2. `UNRAID_MEDIA_PATH` in `.env` is correct
-3. Volume mount in `docker-compose.yml` is correct
-
-Example mapping:
-- Host: `/mnt/user/movies/example.mp4`
-- Container: `/data/example.mp4`
-- Request: `{"video_path": "/data/example.mp4"}`
-
-### Translation failing
-
-1. **Check DeepL API key**:
-   ```bash
-   # View current config
-   docker-compose exec web-service env | grep DEEPL
-   ```
-
-2. **Check quota usage**: Log in to DeepL dashboard
-
-3. **LibreTranslate not running**:
-   ```bash
-   docker-compose restart libretranslate
-   curl http://localhost:5000/languages
-   ```
-
-### FFmpeg errors
-
-Ensure video file is readable and in a supported format. Most common formats (MP4, MKV, AVI, MOV) are supported.
+1. **Stash Plugin** detects foreign language tag on scene
+2. **JavaScript** triggers Go RPC task via `runPluginTask()`
+3. **Go RPC Plugin** calls web service `/auto-caption/start`
+4. **Web Service** queues task in ThreadPoolExecutor
+5. **Background Worker** extracts audio, calls Whisper server
+6. **Whisper Server** transcribes with streaming progress
+7. **Web Service** optionally translates, saves SRT file
+8. **Go RPC Plugin** triggers Stash metadata scan via GraphQL
+9. **Stash** indexes new subtitle file
+10. **JavaScript** loads caption in video player
 
 ## Performance
 
 ### Transcription Speed
-- Real-time factor: ~0.1-0.3x (10-30% of video duration)
-- Example: 1-hour video takes ~6-18 minutes to transcribe
+
+- Real-time factor: ~0.1x (10% of video duration)
+- Example: 1-hour video = ~6 minutes transcription
 
 ### Resource Usage
-- **RAM**: ~6GB total (4GB Vosk + 2GB LibreTranslate)
-- **Disk**: ~13GB for Vosk models + Docker images
-- **CPU**: Moderate during transcription
+
+- **RAM**: ~6GB (4GB Whisper + 2GB LibreTranslate)
+- **Disk**: ~5GB (Whisper models + Docker images)
+- **CPU**: High during transcription (benefits from multi-core)
+
+### GPU Acceleration
+
+For faster transcription, enable GPU:
+
+1. Edit `whisper-server/whisper_http_server.py`:
+
+   ```python
+   model = WhisperModel(MODEL_SIZE, device="cuda", compute_type="float16")
+   ```
+
+2. Update `docker-compose.yml`:
+   ```yaml
+   whisper-server:
+     runtime: nvidia
+     environment:
+       - NVIDIA_VISIBLE_DEVICES=all
+   ```
+
+## Troubleshooting
+
+### Services Not Starting
+
+```bash
+# Check logs
+docker-compose logs web-service
+docker-compose logs whisper-server
+
+# Check ports
+netstat -tulpn | grep -E "2800|8000|5000"
+
+# Restart services
+docker-compose restart
+```
+
+### Plugin Not Appearing in Stash
+
+```bash
+# Verify binary is executable
+chmod +x <STASH_PLUGINS_DIR>/stash-auto-caption/gorpc/stash-auto-caption-rpc
+
+# Check Stash logs
+docker logs stash | grep "auto-caption"
+
+# Reload plugins in Stash UI
+```
+
+### Caption Generation Fails
+
+```bash
+# Test web service directly
+curl -X POST http://localhost:8000/auto-caption/start \
+  -H "Content-Type: application/json" \
+  -d '{"video_path":"/data/test.mp4","language":"en"}'
+
+# Check video file accessible
+docker exec auto-caption-web-1 ls -la /data/test.mp4
+```
+
+### Progress Not Updating
+
+```bash
+# Check streaming is enabled
+docker-compose logs whisper-server | grep "task_id"
+
+# Verify web service consuming stream
+docker-compose logs web-service | grep "progress"
+```
+
+## API Documentation
+
+Interactive documentation available at:
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
 ## Development
 
-### Local Testing
+### Testing Locally
 
 ```bash
 # Build services
 docker-compose build
 
-# Start services
+# Start in foreground
 docker-compose up
 
-# Run tests (if you add them)
+# Run tests
 docker-compose exec web-service pytest
 
-# Access container shell
+# Access shell
 docker-compose exec web-service bash
 ```
 
-### Environment Variables
+### Compiling Go Binary
 
-| Variable              | Default                     | Description                      |
-|-----------------------|-----------------------------|----------------------------------|
-| `DEEPL_API_KEY`       | (required)                  | DeepL API authentication key     |
-| `UNRAID_MEDIA_PATH`   | `/mnt/user/movies`          | Host path to media directory (mounted to /data) |
-| `WEB_SERVICE_PORT`    | `9080`                      | Port for FastAPI web service     |
-| `DOCKER_NETWORK`      | `auto-caption-network`      | Docker network name (must exist) |
-| `LOG_LEVEL`           | `INFO`                      | Logging level                    |
-| `VOSK_SERVER_URL`     | `http://vosk-server:2700`   | Vosk server URL (internal)       |
-| `LIBRETRANSLATE_URL`  | `http://libretranslate:5000`| LibreTranslate URL (internal)    |
+```bash
+cd stash-auto-caption/gorpc
+GOOS=linux GOARCH=amd64 go build -o stash-auto-caption-rpc main.go
+```
 
-## API Documentation
+## Documentation
 
-Once running, interactive API documentation is available at:
-- **Swagger UI**: http://localhost:9080/docs
-- **ReDoc**: http://localhost:9080/redoc
+For complete implementation details, see [CLAUDE.md](CLAUDE.md):
+
+- Architecture decisions and rationale
+- API specifications with examples
+- Troubleshooting guide
+- Key lessons learned
+- Testing procedures
+
+For detailed architecture decisions, see [Architecture Decision Records (ADRs)](docs/adr/):
+
+- [ADR 001: Whisper Over Vosk](docs/adr/001-whisper-over-vosk.md)
+- [ADR 002: Dual Plugin Architecture](docs/adr/002-dual-plugin-architecture.md)
+- [ADR 003: Streaming Progress Tracking](docs/adr/003-streaming-progress-tracking.md)
+- [ADR 004: GraphQL Client Patterns](docs/adr/004-graphql-client-patterns.md)
+
+## Branch Information
+
+- **`main`**: Original Vosk-based implementation (deprecated)
+- **`whisper-rpc`**: Current Whisper + RPC implementation (active)
+
+## Credits
+
+- Transcription: [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- Translation: [LibreTranslate](https://libretranslate.com/)
+- Stash Integration: [Stash](https://github.com/stashapp/stash)
+- Implementation: Claude (Anthropic)
+
+## Support
+
+For issues and questions:
+
+1. Check [CLAUDE.md](CLAUDE.md) for detailed documentation
+2. Review Troubleshooting section above
+3. Check service logs: `docker-compose logs`
+
+## Future Enhancements
+
+- GPU acceleration for faster transcription
+- Batch processing for multiple scenes
+- Web UI for service management
+- Automatic language detection
+- Support for VTT, ASS subtitle formats
+- Speaker diarization
+- WebSocket progress updates
 
 ## License
 
 This project uses:
-- **Vosk** - Apache 2.0 License
+
+- **Whisper** - MIT License
 - **LibreTranslate** - AGPL-3.0 License
-- **DeepL API** - Commercial (free tier available)
 - **FastAPI** - MIT License
-
-## Credits
-
-- Speech recognition powered by [Vosk](https://alphacephei.com/vosk/)
-- Translation by [DeepL](https://www.deepl.com/) and [LibreTranslate](https://libretranslate.com/)
-- Inspired by [Transloadit DevTip](https://transloadit.com/devtips/automatic-spoken-language-detection-with-curl-open-source/)
-
-## Support
-
-For issues and feature requests, refer to the CLAUDE.md implementation plan or check:
-- Vosk documentation: https://alphacephei.com/vosk/
-- FastAPI documentation: https://fastapi.tiangolo.com/
-- DeepL API docs: https://www.deepl.com/docs-api
-
-## Future Enhancements
-
-- Automatic language detection
-- Support for VTT, ASS, SSA subtitle formats
-- Batch processing endpoint
-- WebSocket for real-time progress updates
-- GPU acceleration for Vosk
-- Model caching optimization
+- **Stash** - AGPL-3.0 License
