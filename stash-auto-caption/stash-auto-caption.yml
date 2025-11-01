@@ -25,3 +25,7 @@ tasks:
     description: Generates subtitles for a scene using Whisper transcription
     defaultArgs:
       mode: generate
+  - name: Generate Missing Captions
+    description: Generates subtitles for all foreign language scenes without captions
+    defaultArgs:
+      mode: generateBatch
