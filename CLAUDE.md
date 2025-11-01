@@ -48,10 +48,17 @@ chmod +x <STASH_PLUGINS_DIR>/stash-auto-caption/gorpc/stash-auto-caption-rpc
 4. Monitor progress in Jobs queue
 5. Caption loads in player when complete
 
-**Manual:**
+**Manual (Single Scene):**
 1. Scene page > Tasks > "Generate Caption for Scene"
 2. Monitor Jobs queue
 3. Refresh to see caption
+
+**Batch Processing:**
+1. Stash UI > Tasks > "Generate Captions for All Foreign Language Scenes"
+2. Plugin finds all scenes with foreign language tags
+3. Filters out scenes that already have captions
+4. Queues individual caption generation tasks
+5. Monitor progress in Jobs queue (one job per scene)
 
 ---
 
@@ -75,6 +82,7 @@ See detailed ADRs in [`docs/adr/`](docs/adr/):
 - [ADR 002: Dual Plugin Architecture](docs/adr/002-dual-plugin-architecture.md)
 - [ADR 003: Streaming Progress Tracking](docs/adr/003-streaming-progress-tracking.md)
 - [ADR 004: GraphQL Client Patterns](docs/adr/004-graphql-client-patterns.md)
+- [ADR 005: Batch Caption Generation](docs/adr/005-batch-caption-generation.md)
 
 ### Core Principles
 
@@ -97,7 +105,7 @@ Start caption generation task.
 ```json
 {
   "video_path": "/data/video.mp4",
-  "language": "es",
+  "language": "es",  // Optional: omit for auto-detection
   "translate_to": "en"
 }
 ```
@@ -325,6 +333,26 @@ ID graphql.String
 // ✅ CORRECT - Use graphql.ID
 ID graphql.ID
 ```
+
+### Named Type Reflection (Critical)
+```go
+// ❌ WRONG - Anonymous map, library can't reflect type
+variables := map[string]interface{}{
+    "filter": map[string]interface{}{"per_page": 10},
+}
+// Generates: query ($filter:!) {  // MISSING TYPE!
+
+// ✅ CORRECT - Named struct, library can reflect type
+type FindFilterType struct {
+    PerPage *graphql.Int `graphql:"per_page" json:"per_page"`
+}
+filterInput := &FindFilterType{PerPage: &graphql.Int(10)}
+variables := map[string]interface{}{"filter": filterInput}
+// Generates: query ($filter: FindFilterType!) {  // CORRECT!
+```
+**Issue:** The hasura/go-graphql-client uses Go type reflection to generate GraphQL type declarations. Anonymous types (plain maps/slices) have no type name, so the library generates invalid queries.
+
+**Solution:** Always use named types (structs or type aliases) and pass pointers to them. See [ADR 004 Pattern 6](docs/adr/004-graphql-client-patterns.md#pattern-6-use-named-types-for-type-reflection-critical) for complete details.
 
 ### VAD Filter and Timestamp Accuracy
 ```python

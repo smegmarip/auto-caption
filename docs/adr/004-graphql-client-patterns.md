@@ -152,6 +152,77 @@ var sceneQuery struct {
 
 **Rationale**: Reusable fragments are cleaner and more maintainable.
 
+### Pattern 6: Use Named Types for Type Reflection (Critical)
+
+**❌ Wrong:**
+```go
+// Anonymous map - library can't reflect on type
+variables := map[string]interface{}{
+    "filter": map[string]interface{}{
+        "per_page": 10,
+    },
+}
+// Generates: query ($filter:!) {  // MISSING TYPE!
+```
+
+**❌ Wrong:**
+```go
+// Anonymous slice - library can't determine element type
+args := []*PluginArgInput{{...}}
+variables := map[string]interface{}{
+    "args": args,
+}
+// Generates: mutation ($args:[!]!) {  // MISSING TYPE!
+```
+
+**✅ Correct:**
+```go
+// Named struct type - library can reflect
+filterInput := &FindFilterType{
+    PerPage: &graphql.Int(10),
+}
+variables := map[string]interface{}{
+    "filter": filterInput,
+}
+// Generates: query ($filter: FindFilterType!) {  // CORRECT!
+```
+
+**✅ Correct:**
+```go
+// Named type alias for custom scalar
+type Map map[string]interface{}
+
+argsMap := &Map{
+    "mode": "test",
+    "value": 123,
+}
+variables := map[string]interface{}{
+    "args_map": argsMap,
+}
+// Generates: mutation ($args_map: Map) {  // CORRECT!
+```
+
+**✅ Correct:**
+```go
+// Named type alias for slice
+type PluginArgs []*PluginArgInput
+
+args := &PluginArgs{{...}}
+variables := map[string]interface{}{
+    "args": args,
+}
+// Generates: mutation ($args: [PluginArgInput!]!) {  // CORRECT!
+```
+
+**Rationale**: The hasura/go-graphql-client uses **Go type reflection** to generate GraphQL type declarations. It inspects the Go type name to determine the corresponding GraphQL type. Anonymous types (plain maps/slices) have no type name, so the library cannot generate the correct GraphQL type declaration.
+
+**Rule of Thumb:**
+- For **GraphQL scalar types** (String, Int, ID, Boolean): Use `graphql.X` wrapper types directly
+- For **GraphQL input object types**: Define a named Go struct and pass a pointer
+- For **GraphQL custom scalars** (Map): Define a named type alias and pass a pointer
+- For **GraphQL list types**: Define a named type alias and pass a pointer
+- For **Go primitives** in variables: Wrap in appropriate `graphql.X` type
+
 ## Implementation Checklist
 
 When adding new GraphQL queries/mutations:
@@ -161,8 +232,9 @@ When adding new GraphQL queries/mutations:
 3. ✅ Use `graphql.ID` for all ID fields
 4. ✅ Create input structs with `json` tags
 5. ✅ Use fragment structs for reusable types
-6. ✅ Pass variables via `map[string]interface{}`
-7. ✅ Use `graphql` types in variable values (e.g., `graphql.ID(sceneID)`)
+6. ✅ **CRITICAL**: Pass pointers to named types for all variables (never anonymous maps/slices)
+7. ✅ For custom scalars/collections: Create named type alias
+8. ✅ Use `graphql` types in variable values (e.g., `graphql.ID(sceneID)`)
 
 ## Example: Complete Pattern
 
