@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   whisper-server:
@@ -16,14 +16,14 @@ services:
       - ./whisper-server/models:/opt/models
       - ./whisper-server/whisper_http_server.py:/opt/whisper_http_server.py
     networks:
-      - plex_network
+      - auto_caption_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:2800/"]
       interval: 10s
       timeout: 10s
       retries: 3
-      start_period: 600s  # 10 minutes for first-time model download (~3GB for large-v3)
+      start_period: 600s # 10 minutes for first-time model download (~3GB for large-v3)
     deploy:
       resources:
         limits:
@@ -39,14 +39,20 @@ services:
     volumes:
       - libretranslate-data:/home/libretranslate/.local
     networks:
-      - plex_network
+      - auto_caption_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)"]
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)",
+        ]
       interval: 10s
       timeout: 10s
       retries: 3
-      start_period: 600s  # 10 minutes for model loading
+      start_period: 600s # 10 minutes for model loading
     deploy:
       resources:
         limits:
@@ -58,7 +64,7 @@ services:
     hostname: dependency-checker
     command: sh -c "while true; do sleep 10; done"
     networks:
-      - plex_network
+      - auto_caption_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "sh", "-c", "curl -f http://whisper-server:2800/"]
@@ -83,7 +89,7 @@ services:
       - ${UNRAID_MEDIA_PATH}:/data
       - ./web-service/app:/app/app
     networks:
-      - plex_network
+      - auto_caption_network
     depends_on:
       dependency-checker:
         condition: service_healthy
@@ -96,7 +102,8 @@ services:
       start_period: 10s
 
 networks:
-  plex_network:
+  auto_caption_network:
+    name: ${DOCKER_NETWORK:-auto-caption-network}
     external: true
 
 volumes:
