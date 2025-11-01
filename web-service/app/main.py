@@ -247,7 +247,7 @@ async def generate_caption(request: CaptionRequest):
 def generate_caption_background(
     task_id: str,
     video_path: str,
-    language: str,
+    language: str = None,
     translate_to: str = None
 ):
     """
@@ -257,10 +257,11 @@ def generate_caption_background(
     Args:
         task_id: Task ID for status tracking
         video_path: Path to video file
-        language: Source language code
+        language: Source language code, or None for auto-detection
         translate_to: Optional target language code
     """
-    logger.info(f"Task {task_id} started: video={video_path}, lang={language}, translate={translate_to}")
+    lang_str = language if language else "auto-detect"
+    logger.info(f"Task {task_id} started: video={video_path}, lang={lang_str}, translate={translate_to}")
     translation_service = None
 
     try:
@@ -301,7 +302,7 @@ def generate_caption_background(
         # Check if we need to translate to English using Whisper
         translate_to_english = (
             translate_to == 'en' and
-            language != 'en'
+            (language is None or language != 'en')
         )
 
         srt_content, detected_language, lang_probability = transcribe_video(
@@ -316,10 +317,13 @@ def generate_caption_background(
         if not srt_content:
             raise ValueError("Transcription produced no results")
 
+        # Use detected language for subsequent operations if language was None
+        source_lang = detected_language if language is None else language
+
         # Whisper did the work (either transcription or translation to English)
         translation_service = "whisper"
         if translate_to_english:
-            logger.info(f"Task {task_id}: Whisper translated from {language} to English")
+            logger.info(f"Task {task_id}: Whisper translated from {source_lang} to English")
             # Whisper handled 85% (transcription + translation), now at 95%
             task_manager.update_progress(task_id, 0.95, TaskStage.TRANSCRIBING)
         else:
@@ -330,13 +334,14 @@ def generate_caption_background(
         logger.info(f"Task {task_id}: Transcription complete ({len(srt_content)} chars)")
 
         # Stage 3: Optional translation with LibreTranslate (20% of progress: 75-95%)
-        if translate_to and translate_to != 'en' and translate_to != language:
+        # Use detected source language for translation
+        if translate_to and translate_to != 'en' and translate_to != source_lang:
             task_manager.update_progress(task_id, 0.75, TaskStage.TRANSLATING)
-            logger.info(f"Task {task_id}: Translating from {language} to {translate_to}...")
+            logger.info(f"Task {task_id}: Translating from {source_lang} to {translate_to}...")
 
             srt_content, translation_service = translate_srt(
                 srt_content,
-                language,
+                source_lang,
                 translate_to,
                 LIBRETRANSLATE_URL
             )

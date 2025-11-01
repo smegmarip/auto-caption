@@ -14,9 +14,9 @@ class CaptionRequest(BaseModel):
         description="Path to the video file (must be within /data)",
         examples=["/data/example.mp4"]
     )
-    language: str = Field(
-        ...,
-        description="Language code for transcription (en, es, ja, pt, ru, fr, de, nl, it)",
+    language: Optional[str] = Field(
+        None,
+        description="Language code for transcription (en, es, ja, pt, ru, fr, de, nl, it). If not provided, Whisper will auto-detect.",
         examples=["en"]
     )
     translate_to: Optional[str] = Field(
@@ -27,9 +27,9 @@ class CaptionRequest(BaseModel):
 
     @field_validator("language")
     @classmethod
-    def validate_language(cls, v: str) -> str:
+    def validate_language(cls, v: Optional[str]) -> Optional[str]:
         """Validate language code"""
-        if v not in SUPPORTED_LANGUAGES:
+        if v is not None and v not in SUPPORTED_LANGUAGES:
             raise ValueError(
                 f"Language '{v}' not supported. "
                 f"Supported languages: {', '.join(SUPPORTED_LANGUAGES)}"

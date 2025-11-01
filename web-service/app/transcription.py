@@ -3,7 +3,7 @@ import logging
 import tempfile
 import requests
 import ffmpeg
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def extract_audio(video_path: str) -> str:
 
 def transcribe_with_whisper(
     audio_path: str,
-    language: str,
+    language: Optional[str],
     whisper_server_url: str,
     translate_to_english: bool = False,
     task_id: str = None,
@@ -73,7 +73,7 @@ def transcribe_with_whisper(
 
     Args:
         audio_path: Path to audio file
-        language: Source language code (e.g., 'en', 'es', 'pt')
+        language: Source language code (e.g., 'en', 'es', 'pt'), or None for auto-detection
         whisper_server_url: URL of Whisper server
         translate_to_english: If True, translate to English (uses Whisper's translate task)
         task_id: Optional task ID for progress updates
@@ -90,7 +90,8 @@ def transcribe_with_whisper(
     import json
 
     task = 'translate' if translate_to_english else 'transcribe'
-    logger.info(f"Transcribing with Whisper (language: {language}, task: {task})")
+    lang_str = language if language else "auto-detect"
+    logger.info(f"Transcribing with Whisper (language: {lang_str}, task: {task})")
 
     # Whisper server SRT endpoint
     endpoint = f"{whisper_server_url}/transcribe/srt"
@@ -103,8 +104,10 @@ def transcribe_with_whisper(
         # Generate whisper task ID if we have a web service task ID
         whisper_task_id = f"whisper-{task_id}" if task_id else None
 
-        # Prepare params
-        params = {'language': language, 'task': task}
+        # Prepare params - only include language if provided
+        params = {'task': task}
+        if language:
+            params['language'] = language
         if whisper_task_id:
             params['task_id'] = whisper_task_id
 
@@ -198,7 +201,7 @@ def transcribe_with_whisper(
 
 def transcribe_video(
     video_path: str,
-    language: str,
+    language: Optional[str],
     whisper_server_url: str,
     translate_to_english: bool = False,
     task_id: str = None,
@@ -209,7 +212,7 @@ def transcribe_video(
 
     Args:
         video_path: Path to video file
-        language: Source language code
+        language: Source language code, or None for auto-detection
         whisper_server_url: URL of Whisper server
         translate_to_english: If True, translate to English using Whisper
         task_id: Optional task ID for progress updates
