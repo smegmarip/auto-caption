@@ -263,7 +263,7 @@ func (a *autoCaptionAPI) pollTaskStatus(serviceURL, taskID string) error {
 			// Update progress
 			log.Progress(status.Progress)
 			if status.Stage != nil {
-				log.Infof("Stage: %s (%.0f%%)", *status.Stage, status.Progress*100)
+				log.Tracef("Stage: %s (%.0f%%)", *status.Stage, status.Progress*100)
 			}
 
 			// Check status
