@@ -16,6 +16,7 @@ CORS(app)
 MODEL_NAME = os.getenv('WHISPER_MODEL', 'large-v3')
 DEVICE = os.getenv('WHISPER_DEVICE', 'cuda')
 COMPUTE_TYPE = os.getenv('WHISPER_COMPUTE_TYPE', 'float16')
+CPU_THREADS = int(os.getenv('WHISPER_CPU_THREADS', '0'))  # 0 = auto (use all cores)
 
 # Initialize model (loaded on first request to save startup time)
 model = None
@@ -30,12 +31,20 @@ def get_model():
     global model
     if model is None:
         print(f"Loading Whisper model: {MODEL_NAME} on {DEVICE} with {COMPUTE_TYPE}")
-        model = WhisperModel(
-            MODEL_NAME,
-            device=DEVICE,
-            compute_type=COMPUTE_TYPE,
-            download_root="/opt/models"
-        )
+
+        # Build model kwargs
+        model_kwargs = {
+            "device": DEVICE,
+            "compute_type": COMPUTE_TYPE,
+            "download_root": "/opt/models"
+        }
+
+        # Add cpu_threads if specified (> 0)
+        if CPU_THREADS > 0:
+            model_kwargs["cpu_threads"] = CPU_THREADS
+            print(f"CPU threads limited to: {CPU_THREADS}")
+
+        model = WhisperModel(MODEL_NAME, **model_kwargs)
         print(f"Model loaded successfully")
     return model
 
@@ -433,6 +442,7 @@ if __name__ == '__main__':
     print(f"Model: {MODEL_NAME}")
     print(f"Device: {DEVICE}")
     print(f"Compute Type: {COMPUTE_TYPE}")
+    print(f"CPU Threads: {CPU_THREADS if CPU_THREADS > 0 else 'auto (all cores)'}")
     print(f"Model will be loaded on first request...")
     print("\nAvailable endpoints:")
     print("  GET  /                - Health check")

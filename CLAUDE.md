@@ -170,6 +170,9 @@ MEDIA_PATH=/path/to/media
 WEB_SERVICE_PORT=8000
 WHISPER_SERVER_PORT=2800
 LIBRETRANSLATE_PORT=5000
+
+# Performance Throttling (Optional)
+WHISPER_CPU_THREADS=0  # 0 = auto (all cores), or specify number (e.g., 8, 12, 16)
 ```
 
 ### Plugin Settings (Stash UI)
@@ -264,6 +267,43 @@ variables := map[string]interface{}{
 }
 
 err := client.Mutate(ctx, &mutation, variables)
+```
+
+---
+
+## Performance Tuning
+
+### CPU Thread Limiting (Thermal Management)
+
+If your system experiences high temperatures (90°C+) during transcription, you can limit CPU thread usage without affecting transcription quality:
+
+**Environment Variable:**
+```bash
+WHISPER_CPU_THREADS=8  # Limit to 8 CPU threads
+```
+
+**Recommended Values for Ryzen 9 3900X (12 cores/24 threads):**
+- Conservative: `WHISPER_CPU_THREADS=8` (33% utilization)
+- Moderate: `WHISPER_CPU_THREADS=12` (50% utilization)
+- Balanced: `WHISPER_CPU_THREADS=16` (67% utilization)
+
+**Trade-offs:**
+- Lower values = lower thermal load but longer transcription times
+- Quality remains identical regardless of thread count
+- Useful for systems with inadequate cooling (e.g., NAS repurposed for compute)
+
+**Apply Changes:**
+```bash
+# Edit .env file
+nano .env
+# Add: WHISPER_CPU_THREADS=8
+
+# Restart whisper-server
+docker-compose restart whisper-server
+
+# Verify in logs
+docker-compose logs whisper-server | grep "CPU Threads"
+# Should show: "CPU Threads: 8" instead of "auto (all cores)"
 ```
 
 ---

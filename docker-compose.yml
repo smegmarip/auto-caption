@@ -12,6 +12,7 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-float16}
+      - WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-0}
     volumes:
       - ./whisper-server/models:/opt/models
       - ./whisper-server/whisper_http_server.py:/opt/whisper_http_server.py
