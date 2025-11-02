@@ -15,7 +15,8 @@ WORKDIR /opt
 RUN pip3 install --no-cache-dir \
     faster-whisper==1.0.3 \
     flask==3.0.0 \
-    flask-cors==4.0.0
+    flask-cors==4.0.0 \
+    gunicorn==21.2.0
 
 # Create model cache directory
 RUN mkdir -p /opt/models
@@ -31,5 +32,5 @@ ENV WHISPER_MODEL=large-v3
 ENV WHISPER_DEVICE=cuda
 ENV WHISPER_COMPUTE_TYPE=float16
 
-# Run server
-CMD ["python3", "/opt/whisper_http_server.py"]
+# Run server with gunicorn (production WSGI server with long timeout)
+CMD ["gunicorn", "--bind", "0.0.0.0:2800", "--workers", "2", "--timeout", "600", "--access-logfile", "-", "whisper_http_server:app"]
