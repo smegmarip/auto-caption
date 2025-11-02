@@ -5,11 +5,33 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	graphql "github.com/hasura/go-graphql-client"
+	"github.com/stashapp/stash/pkg/plugin/common"
 	"github.com/stashapp/stash/pkg/plugin/common/log"
 )
+
+// getIntArg safely retrieves an integer argument, trying Int() first, then String() with parsing
+func getIntArg(args common.ArgsMap, key string, defaultValue int) int {
+	// Try Int() method first (for NUMBER type in YAML)
+	value := args.Int(key)
+	if value != 0 {
+		return value
+	}
+
+	// Fallback: try parsing as string (for STRING type in YAML)
+	strValue := args.String(key)
+	if strValue != "" {
+		if parsed, err := strconv.Atoi(strValue); err == nil {
+			return parsed
+		}
+	}
+
+	// Return default if not found or parsing failed
+	return defaultValue
+}
 
 // findForeignLanguageTag queries all tags and returns the "Foreign Language" tag with its children
 func (a *autoCaptionAPI) findForeignLanguageTag() (*TagWithChildren, []TagFragment, error) {
@@ -206,7 +228,7 @@ func (a *autoCaptionAPI) addSubtitledTag(sceneID string) error {
 }
 
 // runPluginTaskForScene queues a caption generation task via GraphQL RunPluginTask
-func (a *autoCaptionAPI) runPluginTaskForScene(ctx context.Context, scene *SceneForBatch, language string, serviceURL string) (string, error) {
+func (a *autoCaptionAPI) runPluginTaskForScene(ctx context.Context, scene *SceneForBatch, language string, serviceURL string, cooldownSeconds int) (string, error) {
 	sceneID := string(scene.ID)
 	videoPath := scene.Files[0].Path
 
@@ -217,12 +239,13 @@ func (a *autoCaptionAPI) runPluginTaskForScene(ctx context.Context, scene *Scene
 
 	// Build args map
 	argsMap := &Map{
-		"mode":         "generate",
-		"scene_id":     sceneID,
-		"video_path":   videoPath,
-		"language":     language,
-		"translate_to": "en",
-		"service_url":  serviceURL,
+		"mode":             "generate",
+		"scene_id":         sceneID,
+		"video_path":       videoPath,
+		"language":         language,
+		"translate_to":     "en",
+		"service_url":      serviceURL,
+		"cooldown_seconds": cooldownSeconds,
 	}
 
 	variables := map[string]interface{}{

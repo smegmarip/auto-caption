@@ -154,6 +154,7 @@ func (a *autoCaptionAPI) generateCaption(input common.PluginInput) error {
 	language := input.Args.String("language")
 	translateTo := input.Args.String("translate_to")
 	serviceURL := input.Args.String("service_url")
+	cooldownSeconds := getIntArg(input.Args, "cooldown_seconds", 0)
 
 	if sceneID == "" {
 		return fmt.Errorf("scene_id is required")
@@ -189,6 +190,12 @@ func (a *autoCaptionAPI) generateCaption(input common.PluginInput) error {
 	if err := a.addSubtitledTag(sceneID); err != nil {
 		log.Warnf("Failed to add 'Subtitled' tag: %v", err)
 		// Don't fail the whole task if tag update fails
+	}
+
+	// Apply cooldown period if specified (for batch processing)
+	if cooldownSeconds > 0 {
+		log.Infof("Cooling down for %d seconds to prevent hardware stress...", cooldownSeconds)
+		time.Sleep(time.Duration(cooldownSeconds) * time.Second)
 	}
 
 	return nil
@@ -316,8 +323,11 @@ var LANG_DICT = map[string]string{
 func (a *autoCaptionAPI) generateBatchCaptions(input common.PluginInput) error {
 	ctx := context.Background()
 	serviceURL := input.Args.String("service_url")
+	cooldownSeconds := getIntArg(input.Args, "cooldown_seconds", 10)
+	maxBatchSize := getIntArg(input.Args, "max_batch_size", 20)
 
 	log.Info("Starting batch caption generation for all foreign language scenes...")
+	log.Infof("Configuration: max_batch_size=%d, cooldown_seconds=%d", maxBatchSize, cooldownSeconds)
 
 	// Step 1: Find "Foreign Language" parent tag and its children
 	foreignLangTag, foreignLangChildren, err := a.findForeignLanguageTag()
@@ -381,6 +391,12 @@ func (a *autoCaptionAPI) generateBatchCaptions(input common.PluginInput) error {
 		return nil
 	}
 
+	// Apply max batch size limit
+	if len(scenesToProcess) > maxBatchSize {
+		log.Warnf("Found %d scenes to process, but limiting to max_batch_size=%d to prevent hardware stress", len(scenesToProcess), maxBatchSize)
+		scenesToProcess = scenesToProcess[:maxBatchSize]
+	}
+
 	// Step 5: Queue caption generation task for each scene
 	log.Infof("Queueing %d scenes for caption generation...", len(scenesToProcess))
 
@@ -409,7 +425,7 @@ func (a *autoCaptionAPI) generateBatchCaptions(input common.PluginInput) error {
 		}
 
 		// Queue the task via RunPluginTask
-		_, err := a.runPluginTaskForScene(ctx, &scene, language, serviceURL)
+		_, err := a.runPluginTaskForScene(ctx, &scene, language, serviceURL, cooldownSeconds)
 		if err != nil {
 			log.Errorf("Scene %s (%s): Failed to queue task: %v", string(scene.ID), sceneTitle, err)
 			failed++
