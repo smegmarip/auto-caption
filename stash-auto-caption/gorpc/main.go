@@ -154,7 +154,17 @@ func (a *autoCaptionAPI) generateCaption(input common.PluginInput) error {
 	language := input.Args.String("language")
 	translateTo := input.Args.String("translate_to")
 	serviceURL := input.Args.String("service_url")
-	cooldownSeconds := getIntArg(input.Args, "cooldown_seconds", 0)
+
+	pluginConfig, err := a.getPluginConfiguration()
+	if err != nil {
+		return fmt.Errorf("failed to get plugin configuration: %w", err)
+	}
+
+	log.Debugf("generateCaption received plugin config: %+v", pluginConfig)
+	// Get cooldownSeconds from config
+	cooldownSeconds := getIntSetting(pluginConfig, "cooldownSeconds", 10)
+
+	log.Debugf("generateCaption configuration: cooldownSeconds=%d", cooldownSeconds)
 
 	if sceneID == "" {
 		return fmt.Errorf("scene_id is required")
@@ -323,12 +333,19 @@ var LANG_DICT = map[string]string{
 func (a *autoCaptionAPI) generateBatchCaptions(input common.PluginInput) error {
 	ctx := context.Background()
 	serviceURL := input.Args.String("service_url")
-	cooldownSeconds := getIntArg(input.Args, "cooldown_seconds", 10)
-	maxBatchSize := getIntArg(input.Args, "max_batch_size", 20)
+
+	pluginConfig, err := a.getPluginConfiguration()
+	if err != nil {
+		return fmt.Errorf("failed to get plugin configuration: %w", err)
+	}
+	log.Debugf("generateBatchCaptions received plugin config: %+v", pluginConfig)
+
+	// Get cooldownSeconds and maxBatchSize from config
+	cooldownSeconds := getIntSetting(pluginConfig, "cooldownSeconds", 10)
+	maxBatchSize := getIntSetting(pluginConfig, "maxBatchSize", 20)
 
 	log.Info("Starting batch caption generation for all foreign language scenes...")
-	log.Infof("Configuration: max_batch_size=%d, cooldown_seconds=%d", maxBatchSize, cooldownSeconds)
-
+	log.Infof("Configuration: maxBatchSize=%d, cooldownSeconds=%d", maxBatchSize, cooldownSeconds)
 	// Step 1: Find "Foreign Language" parent tag and its children
 	foreignLangTag, foreignLangChildren, err := a.findForeignLanguageTag()
 	if err != nil {
@@ -355,7 +372,7 @@ func (a *autoCaptionAPI) generateBatchCaptions(input common.PluginInput) error {
 		return fmt.Errorf("no supported language tags found (e.g., 'Spanish Language', 'Japanese Language')")
 	}
 
-	log.Tracef("Found %d supported language tags: %v", len(supportedLangTags), getSupportedLanguageNames(supportedLangTags))
+	log.Debugf("Found %d supported language tags: %v", len(supportedLangTags), getSupportedLanguageNames(supportedLangTags))
 
 	// Step 3: Query scenes with any of the foreign language tags
 	scenes, err := a.findScenesWithLanguageTags(supportedLangTags)
@@ -425,7 +442,7 @@ func (a *autoCaptionAPI) generateBatchCaptions(input common.PluginInput) error {
 		}
 
 		// Queue the task via RunPluginTask
-		_, err := a.runPluginTaskForScene(ctx, &scene, language, serviceURL, cooldownSeconds)
+		_, err := a.runPluginTaskForScene(ctx, &scene, language, serviceURL)
 		if err != nil {
 			log.Errorf("Scene %s (%s): Failed to queue task: %v", string(scene.ID), sceneTitle, err)
 			failed++

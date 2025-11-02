@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,29 +10,8 @@ import (
 	"strings"
 
 	graphql "github.com/hasura/go-graphql-client"
-	"github.com/stashapp/stash/pkg/plugin/common"
 	"github.com/stashapp/stash/pkg/plugin/common/log"
 )
-
-// getIntArg safely retrieves an integer argument, trying Int() first, then String() with parsing
-func getIntArg(args common.ArgsMap, key string, defaultValue int) int {
-	// Try Int() method first (for NUMBER type in YAML)
-	value := args.Int(key)
-	if value != 0 {
-		return value
-	}
-
-	// Fallback: try parsing as string (for STRING type in YAML)
-	strValue := args.String(key)
-	if strValue != "" {
-		if parsed, err := strconv.Atoi(strValue); err == nil {
-			return parsed
-		}
-	}
-
-	// Return default if not found or parsing failed
-	return defaultValue
-}
 
 // findForeignLanguageTag queries all tags and returns the "Foreign Language" tag with its children
 func (a *autoCaptionAPI) findForeignLanguageTag() (*TagWithChildren, []TagFragment, error) {
@@ -81,7 +61,7 @@ func (a *autoCaptionAPI) findScenesWithLanguageTags(languageTags []TagFragment) 
 	}
 
 	// Create filter input
-	perPage := graphql.Int(1000)
+	perPage := graphql.Int(5000)
 	filterInput := &FindFilterType{
 		PerPage: &perPage,
 	}
@@ -107,7 +87,7 @@ func (a *autoCaptionAPI) findScenesWithLanguageTags(languageTags []TagFragment) 
 		return nil, fmt.Errorf("failed to query scenes: %w", err)
 	}
 
-	log.Tracef("FindScenes returned %d scenes (total count: %d)", len(query.FindScenes.Scenes), query.FindScenes.Count)
+	log.Debugf("FindScenes returned %d scenes (total count: %d)", len(query.FindScenes.Scenes), query.FindScenes.Count)
 
 	return query.FindScenes.Scenes, nil
 }
@@ -228,7 +208,7 @@ func (a *autoCaptionAPI) addSubtitledTag(sceneID string) error {
 }
 
 // runPluginTaskForScene queues a caption generation task via GraphQL RunPluginTask
-func (a *autoCaptionAPI) runPluginTaskForScene(ctx context.Context, scene *SceneForBatch, language string, serviceURL string, cooldownSeconds int) (string, error) {
+func (a *autoCaptionAPI) runPluginTaskForScene(ctx context.Context, scene *SceneForBatch, language string, serviceURL string) (string, error) {
 	sceneID := string(scene.ID)
 	videoPath := scene.Files[0].Path
 
@@ -239,13 +219,12 @@ func (a *autoCaptionAPI) runPluginTaskForScene(ctx context.Context, scene *Scene
 
 	// Build args map
 	argsMap := &Map{
-		"mode":             "generate",
-		"scene_id":         sceneID,
-		"video_path":       videoPath,
-		"language":         language,
-		"translate_to":     "en",
-		"service_url":      serviceURL,
-		"cooldown_seconds": cooldownSeconds,
+		"mode":         "generate",
+		"scene_id":     sceneID,
+		"video_path":   videoPath,
+		"language":     language,
+		"translate_to": "en",
+		"service_url":  serviceURL,
 	}
 
 	variables := map[string]interface{}{
@@ -264,6 +243,41 @@ func (a *autoCaptionAPI) runPluginTaskForScene(ctx context.Context, scene *Scene
 	log.Debugf("Queued job ID: %s", jobID)
 
 	return jobID, nil
+}
+
+func (a *autoCaptionAPI) getPluginConfiguration() (PluginConfig, error) {
+	pluginName := "stash-auto-caption"
+	ctx := context.Background()
+
+	query := `query Configuration {
+		configuration {
+		plugins
+		}
+	}`
+
+	debugClient := a.graphqlClient.WithDebug(true)
+	data, err := debugClient.ExecRaw(ctx, query, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query plugin configuration: %w", err)
+	}
+
+	// Unmarshal the response which has structure: {"configuration": {"plugins": {...}}}
+	var response struct {
+		Configuration PluginsConfiguration `json:"configuration"`
+	}
+
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal plugin configuration: %w", err)
+	}
+
+	log.Debugf("Plugin configuration response: %+v", response)
+
+	// Look up the plugin configuration by name
+	if pluginConfig, ok := response.Configuration.Plugins[pluginName]; ok {
+		return pluginConfig, nil
+	}
+
+	return nil, fmt.Errorf("plugin configuration not found for '%s'", pluginName)
 }
 
 // sceneHasCaption checks if a scene has caption metadata or an .srt file on disk
@@ -290,7 +304,7 @@ func (a *autoCaptionAPI) getCaptionPathForScene(scene *SceneForBatch) *string {
 		srtPath := strings.TrimSuffix(videoPath, filepath.Ext(videoPath)) + ".en.srt"
 
 		if _, err := os.Stat(srtPath); err == nil {
-			log.Tracef("Scene %s has .srt file on disk: %s", string(scene.ID), srtPath)
+			log.Debugf("Scene %s has .srt file on disk: %s", string(scene.ID), srtPath)
 			return &srtPath
 		}
 	}
@@ -316,4 +330,32 @@ func (a *autoCaptionAPI) detectSceneLanguage(scene *SceneForBatch, supportedLang
 
 	// If multiple language tags found (shouldn't happen), return empty to trigger auto-detect
 	return ""
+}
+
+// getIntSetting safely retrieves an integer argument, converting to int if necessary with parsing
+func getIntSetting(setting map[string]interface{}, key string, defaultValue int) int {
+	value, ok := setting[key]
+	if !ok {
+		// Key not found in the map
+		return defaultValue
+	}
+
+	switch v := value.(type) {
+	case int:
+		return v
+	case float64:
+		// Common in JSON unmarshaling
+		return int(v)
+	case string:
+		// Try parsing if it's a string
+		if parsed, err := strconv.Atoi(v); err == nil {
+			return parsed
+		} else {
+			// Log the parsing error if needed
+			log.Tracef("Warning: failed to parse string value '%s' for key '%s' as int: %v\n", v, key, err)
+		}
+	}
+
+	// Fallback if type is not recognized or string parsing failed
+	return defaultValue
 }

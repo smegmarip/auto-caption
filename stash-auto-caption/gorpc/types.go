@@ -30,12 +30,12 @@ type ScenePaths struct {
 
 // SceneForBatch represents a scene for batch processing
 type SceneForBatch struct {
-	ID       graphql.ID     `json:"id" graphql:"id"`
-	Title    *string        `json:"title" graphql:"title"`
-	Files    []VideoFile    `json:"files" graphql:"files"`
-	Tags     []TagFragment  `json:"tags" graphql:"tags"`
-	Captions []CaptionData  `json:"captions" graphql:"captions"`
-	Paths    *ScenePaths    `json:"paths" graphql:"paths"`
+	ID       graphql.ID    `json:"id" graphql:"id"`
+	Title    *string       `json:"title" graphql:"title"`
+	Files    []VideoFile   `json:"files" graphql:"files"`
+	Tags     []TagFragment `json:"tags" graphql:"tags"`
+	Captions []CaptionData `json:"captions" graphql:"captions"`
+	Paths    *ScenePaths   `json:"paths" graphql:"paths"`
 }
 
 // FindScenesResult represents the result of FindScenes query
@@ -64,8 +64,8 @@ type SceneUpdateInput struct {
 
 // SceneFragment represents a minimal scene with ID and tags
 type SceneFragment struct {
-	ID 		graphql.ID 		"json:\"id\" graphql:\"id\""
-	Tags	[]*TagFragment 	"json:\"tags\" graphql:\"tags\""
+	ID   graphql.ID     "json:\"id\" graphql:\"id\""
+	Tags []*TagFragment "json:\"tags\" graphql:\"tags\""
 }
 
 // TaskStartRequest represents the request to start a caption task
@@ -127,3 +127,10 @@ type Map map[string]interface{}
 // PluginArgs represents an array of plugin arguments (note: type alias doesn't help with reflection)
 // The library still can't properly generate [PluginArgInput!]! from this
 type PluginArgs []*PluginArgInput
+
+// PluginsConfiguration represents the plugins configuration result structure
+type PluginsConfiguration struct {
+	Plugins map[string]map[string]interface{} `json:"plugins"`
+}
+
+type PluginConfig = map[string]interface{}
