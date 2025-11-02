@@ -7,6 +7,14 @@ settings:
     displayName: Auto-Caption Service URL
     description: URL of the auto-caption web service (leave empty for auto-detection)
     type: STRING
+  cooldownSeconds:
+    displayName: Cooldown Period (seconds)
+    description: Delay between caption generation tasks to prevent hardware overheating (default 10 seconds)
+    type: NUMBER
+  maxBatchSize:
+    displayName: Maximum Batch Size
+    description: Maximum number of scenes to process in batch mode (default 20, prevents hardware stress)
+    type: NUMBER
 ui:
   requires:
     - CommunityScriptsUILibrary
