@@ -255,8 +255,7 @@ func (a *autoCaptionAPI) getPluginConfiguration() (PluginConfig, error) {
 		}
 	}`
 
-	debugClient := a.graphqlClient.WithDebug(true)
-	data, err := debugClient.ExecRaw(ctx, query, nil)
+	data, err := a.graphqlClient.ExecRaw(ctx, query, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query plugin configuration: %w", err)
 	}
